@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 440" width="100%" height="100%">
+  <defs>
+    <style>
+      .title { font-family: 'Source Serif 4', Georgia, serif; font-size: 20px; font-weight: 600; fill: #EDE8DC; }
+      .subtitle { font-family: 'IBM Plex Mono', monospace; font-size: 11px; fill: #8E939B; letter-spacing: 0.12em; }
+      .rail-title { font-family: 'Source Serif 4', Georgia, serif; font-size: 15px; font-weight: 600; fill: #EDE8DC; }
+      .body-text { font-family: 'Source Serif 4', Georgia, serif; font-size: 11.5px; fill: #8E939B; }
+      .code-text { font-family: 'IBM Plex Mono', monospace; font-size: 10.5px; fill: #4DA8DA; }
+      .hub-title { font-family: 'Source Serif 4', Georgia, serif; font-size: 17px; font-weight: 600; fill: #EDE8DC; }
+      .rail-badge { font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 600; letter-spacing: 0.08em; }
+    </style>
+    <marker id="arrow2-dark" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#8E939B"/>
+    </marker>
+  </defs>
+
+  <rect width="100%" height="100%" fill="#0B0C0E" rx="8"/>
+
+  <!-- Header -->
+  <text x="40" y="45" class="title">The Three Multi-Surface Release Rails</text>
+  <text x="40" y="68" class="subtitle">UNIFIED DISPATCH ACROSS CLUSTER · WORKSTATION · DESKTOP</text>
+
+  <!-- Central Source / CI Hub -->
+  <g transform="translate(40, 110)">
+    <rect width="220" height="280" rx="6" fill="#14171C" stroke="#A3222F" stroke-width="1.6"/>
+    <text x="20" y="32" class="rail-badge" fill="#A3222F">SOURCE &amp; BUILD HUB</text>
+    <text x="20" y="62" class="hub-title">Source of Truth</text>
+    <text x="20" y="84" class="subtitle">FORGEJO / GITHUB</text>
+    
+    <text x="20" y="120" class="body-text">Push to main triggers:</text>
+    <text x="20" y="142" class="code-text">.forgejo/workflows/build.yml</text>
+    
+    <line x1="20" y1="165" x2="200" y2="165" stroke="#2B303A" stroke-width="1"/>
+    
+    <text x="20" y="195" class="hub-title" style="font-size: 14px;">OCI Registry (Harbor)</text>
+    <text x="20" y="220" class="code-text">:b&lt;N&gt; (Build ID)</text>
+    <text x="20" y="242" class="code-text">:sha-&lt;commit12&gt;</text>
+    <text x="20" y="264" class="code-text">@sha256:&lt;digest&gt;</text>
+  </g>
+
+  <!-- Connectors to Rails -->
+  <path d="M 260 170 C 310 170, 310 150, 360 150" fill="none" stroke="#8E939B" stroke-width="1.6" marker-end="url(#arrow2-dark)"/>
+  <path d="M 260 250 C 310 250, 310 250, 360 250" fill="none" stroke="#8E939B" stroke-width="1.6" marker-end="url(#arrow2-dark)"/>
+  <path d="M 260 330 C 310 330, 310 350, 360 350" fill="none" stroke="#8E939B" stroke-width="1.6" marker-end="url(#arrow2-dark)"/>
+
+  <!-- Rail A: Server GitOps -->
+  <g transform="translate(370, 100)">
+    <rect width="490" height="90" rx="6" fill="#14171C" stroke="#2B303A" stroke-width="1.2"/>
+    <text x="18" y="26" class="rail-badge" fill="#4DA8DA">RAIL A · SERVER / K3S CLUSTER GITOPS</text>
+    <text x="18" y="52" class="rail-title">Harbor OCI + Argo CD (norns-gitops) · Reference: Vitki</text>
+    <text x="18" y="74" class="body-text">GitOps repository pins immutable digest · Argo CD reconciles cluster pods without laptop access</text>
+  </g>
+
+  <!-- Rail B: Workstation Homebrew -->
+  <g transform="translate(370, 205)">
+    <rect width="490" height="90" rx="6" fill="#14171C" stroke="#2B303A" stroke-width="1.2"/>
+    <text x="18" y="26" class="rail-badge" fill="#C4A45A">RAIL B · DEVELOPER WORKSTATION CLI/TUI</text>
+    <text x="18" y="52" class="rail-title">Private Homebrew Tap (nate/tools) · Reference: Ullr / Yager</text>
+    <text x="18" y="74" class="body-text">Sandboxed formula inreplace prevents source drift · Dynamic version injection during brew sandbox</text>
+  </g>
+
+  <!-- Rail C: Desktop OTA -->
+  <g transform="translate(370, 310)">
+    <rect width="490" height="90" rx="6" fill="#14171C" stroke="#2B303A" stroke-width="1.2"/>
+    <text x="18" y="26" class="rail-badge" fill="#4E9A51">RAIL C · DESKTOP APP CLIENT OTA</text>
+    <text x="18" y="52" class="rail-title">Signed Bundles + Minisign Ed25519 · Reference: Idunn</text>
+    <text x="18" y="74" class="body-text">Pre-built binary signed with repo key · Manifest (latest.json) verified by in-app background updater</text>
+  </g>
+</svg>

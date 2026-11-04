@@ -1,0 +1,36 @@
+# RROM Community License
+Version 1.0
+
+Copyright © 2026 Ravenhelm LLC.
+All rights reserved except as expressly granted below.
+
+## Permitted Uses
+
+Permission is hereby granted, without charge, to any person or organization obtaining a copy of the Ravenhelm Release Operations Methodology ("RROM"):
+
+1. **Informational & Educational Use:** To read, download, store, copy, and redistribute verbatim, unmodified copies of RROM for non-commercial, personal, or educational purposes.
+2. **Internal Implementation:** To adopt, use, and implement the RROM Method, its eighteen principles, and its multi-surface release rails within your own organization for internal software release and artifact custody.
+3. **Internal Adaptations:** To create internal documentation, CI/CD pipeline definitions, gitops manifests, and operational release runbooks necessary to execute and adapt RROM within your own organization.
+
+## Restrictions & Reserved Rights
+
+Except as expressly authorized above, you may not, without prior written permission from Ravenhelm LLC:
+
+1. **Commercial Distribution:** Sell, rent, sublicense, monetize, or commercially distribute RROM or substantial portions thereof in any medium.
+2. **Derivative Works:** Publish, distribute, or make publicly available modified versions, adaptations, translations, or derivative works based on RROM.
+3. **Third-Party Services:** Offer, market, or provide commercial consulting, implementation, assessment, audit, training, coaching, or certification services to third parties using or referencing the RROM name, methodology, or materials.
+4. **Commercial Packaging:** Incorporate RROM or substantial portions of it into a commercial product, SaaS offering, methodology framework, publication, or fee-based training curriculum.
+5. **Brand & Endorsement:** Use the names, trademarks, or service marks of "Ravenhelm" or "RROM" in any manner that suggests sponsorship, affiliation, partnership, certification, or endorsement by Ravenhelm LLC.
+
+## Disclaimer of Warranties
+
+RROM IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM, OUT OF, OR IN CONNECTION WITH THE METHOD OR THE USE OR OTHER DEALINGS IN IT.
+
+## Commercial Licensing, Implementation & Inquiries
+
+For commercial implementation partnerships, enterprise assessments, third-party consulting rights, or custom licensing inquiries, contact:
+
+Nathan Walker  
+Ravenhelm LLC  
+Email: nate@ravenhelm.co  
+Web: https://ravenhelm.co
