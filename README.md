@@ -90,26 +90,26 @@ RROM provides concrete, production-tested delivery rails across three computing 
 
 ## Start Reading
 
-The publication is structured into **14 chapters plus two technical appendices**:
+The publication is structured into **14 chapters plus two technical appendices** (~70,000 words, 372 pages in publication digest trim):
 
-| # | Chapter | Key Focus |
-|---|---|---|
-| 01 | [What This Is and Who It's For](docs/chapters/01-what-this-is.md) | The release crisis, premise, and the multi-surface contract |
-| 02 | [The Core Axiom](docs/chapters/02-the-core-axiom.md) | Builds are the unit; releases are names |
-| 03 | [The Numbered Principles](docs/chapters/03-numbered-principles.md) | Canonical principles (`RP-1`..`RP-18`) with rationales and failure modes |
-| 04 | [The Operator Roles](docs/chapters/04-the-operator-roles.md) | The Delivery Closer, Release Custodian, and Gatekeeper |
-| 05 | [The Artifact Surface](docs/chapters/05-the-artifact-surface.md) | OCI registries, digest addressing, and build numbers (`:b<N>`) |
-| 06 | [The Three Physical Rails](docs/chapters/06-the-three-physical-rails.md) | Cluster GitOps, Workstation Tap, and Client OTA |
-| 07 | [Workflow Canon & Validation Gate](docs/chapters/07-workflow-canon-and-validation-gate.md) | The 5-stage state machine and parity enforcement gates |
-| 08 | [The Tiered Adoption Ladder](docs/chapters/08-tiered-adoption-ladder.md) | Tier 1 (Free / Solo) to Tier 4 (Sovereign Enterprise) |
-| 09 | [Cutovers vs. Deployments](docs/chapters/09-cutovers-vs-deployments.md) | Codifying ADR-011: architectural shifts, datastore migrations, and cutover gates |
-| 10 | [Hotfixes, Emergencies & Rollback](docs/chapters/10-hotfixes-emergencies-and-rollback.md) | Instantaneous digest pointer repointing and bad-build quarantine |
-| 11 | [Security Blast Radius & Elevation](docs/chapters/11-security-blast-radius-and-elevation.md) | App deploys vs. identity-plane mutations with action-hash elevation |
-| 12 | [Code Host & Registry Integration](docs/chapters/12-code-host-and-registry-integration.md) | Forgejo / GitHub Actions, Harbor OCI, and token least-privilege |
-| 13 | [Auditing, Provenance & Compliance](docs/chapters/13-auditing-provenance-and-compliance.md) | Cryptographic provenance, SBOMs, and immutable git delivery ledgers |
-| 14 | [The Release Maturity Assessment](docs/chapters/14-the-assessment.md) | The diagnostic score sheet and commercial advisory engagement |
-| App. A | [Formula Inreplace Playbook](docs/chapters/appendix-a-formula-inreplace-playbook.md) | Practical patterns for Rust, Go, Node, and Python workstation tools |
-| App. B | [The Vitki Reference Specification](docs/chapters/appendix-b-vitki-reference-specification.md) | Architectural case study of the estate's reference implementation |
+| # | Chapter | Key Focus | Words |
+|---|---|---|---|
+| 01 | [What This Is and Who It's For](docs/chapters/01-what-this-is.md) | The release crisis, premise, and the multi-surface contract | 3,675 |
+| 02 | [The Core Axiom](docs/chapters/02-the-core-axiom.md) | Builds are the unit; releases are names (ADR 0007 deep dive) | 3,924 |
+| 03 | [The Numbered Principles](docs/chapters/03-numbered-principles.md) | Canonical principles (`RP-1`..`RP-18`) with rationales, failure modes, and verification rules | 6,247 |
+| 04 | [The Operator Roles](docs/chapters/04-the-operator-roles.md) | Author, Release Custodian, Delivery Closer, and Gatekeeper seats | 3,998 |
+| 05 | [The Artifact Surface](docs/chapters/05-the-artifact-surface.md) | OCI registries, Content-Addressable Storage, Triple-Tagging, and Registry v2 API | 3,863 |
+| 06 | [The Three Physical Rails](docs/chapters/06-the-three-physical-rails.md) | Rail A (Cluster GitOps), Rail B (Workstation Tap), and Rail C (Client OTA) | 4,553 |
+| 07 | [Workflow Canon & Validation Gate](docs/chapters/07-workflow-canon-and-validation-gate.md) | The 5-stage finite state machine and parity enforcement gates | 3,730 |
+| 08 | [The Tiered Adoption Ladder](docs/chapters/08-tiered-adoption-ladder.md) | Tier 1 (Free / Solo) to Tier 4 (Sovereign Enterprise) & Migration Matrix | 5,230 |
+| 09 | [Cutovers vs. Deployments](docs/chapters/09-cutovers-vs-deployments.md) | Codifying ADR-011: the Bifrost incident, datastore migrations, and cutover gates | 4,840 |
+| 10 | [Hotfixes, Emergencies & Rollback](docs/chapters/10-hotfixes-emergencies-and-rollback.md) | Instantaneous 60-second pointer rollback and bad-build quarantine | 4,202 |
+| 11 | [Security Blast Radius & Elevation](docs/chapters/11-security-blast-radius-and-elevation.md) | App deploys vs. identity-plane mutations with Valkyrie action-hash elevation (Ehwaz doctrine) | 4,503 |
+| 12 | [Code Host & Registry Integration](docs/chapters/12-code-host-and-registry-integration.md) | Production Forgejo/GitHub Actions workflows (`build.yml` / `release.yml`) and internal network bypass | 5,270 |
+| 13 | [Auditing, Provenance & Compliance](docs/chapters/13-auditing-provenance-and-compliance.md) | Cryptographic provenance, CycloneDX SBOMs, Cosign attestations, and Verification Triangle | 3,763 |
+| 14 | [The Release Maturity Assessment](docs/chapters/14-the-assessment.md) | The 10-point diagnostic rubric, score bands, and commercial advisory engagements | 5,516 |
+| App. A | [Formula Inreplace Playbook](docs/chapters/appendix-a-formula-inreplace-playbook.md) | Practical sandboxed inreplace patterns for Rust, Go, Node, and Python tool distribution | 2,980 |
+| App. B | [The Vitki Reference Specification](docs/chapters/appendix-b-vitki-reference-specification.md) | Complete architectural case study, Helm templates, helper scripts, and GitOps manifests | 3,696 |
 
 ---
 
