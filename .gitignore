@@ -1,0 +1,33 @@
+# Build outputs
+build/
+site/
+*.pdf
+!RROM-*.pdf
+*.epub
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# Python
+__pycache__/
+*.pyc
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.\#*
+
+# Linter caches
+.markdownlint-cli2.cache
+
+# Secrets
+.env
+.env.*
+*.pem
+*.key

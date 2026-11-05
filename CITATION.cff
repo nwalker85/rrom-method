@@ -1,0 +1,25 @@
+cff-version: 1.2.0
+message: "If you use or reference the Ravenhelm Release Operations Methodology (RROM) in your research, enterprise engineering standards, or publications, please cite it as below."
+authors:
+  - family-names: "Walker"
+    given-names: "Nathan"
+    orcid: "https://orcid.org/0009-0004-9494-8141"
+    affiliation: "Ravenhelm LLC"
+    website: "https://nwalker.cc"
+title: "Ravenhelm Release Operations Methodology (RROM): A Tiered, Sovereign Operating Methodology for Software Release, Artifact Custody, and Multi-Surface Deployment"
+version: "1.0.0"
+date-released: 2026-11-04
+license: "LicenseRef-RROM-Community-1.0"
+repository-code: "https://github.com/nwalker85/rrom-method"
+url: "https://github.com/nwalker85/rrom-method"
+keywords:
+  - "release engineering"
+  - "operating methodology"
+  - "artifact custody"
+  - "gitops"
+  - "software supply chain"
+  - "continuous delivery"
+  - "multi-surface deployment"
+  - "Ravenhelm"
+  - "RLOM"
+  - "RROM"

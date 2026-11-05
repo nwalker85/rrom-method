@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 380" width="100%" height="100%">
+  <defs>
+    <style>
+      .title { font-family: 'Source Serif 4', Georgia, serif; font-size: 20px; font-weight: 600; fill: #0B0C0E; }
+      .subtitle { font-family: 'IBM Plex Mono', monospace; font-size: 11px; fill: #6F6A62; letter-spacing: 0.12em; }
+      .tier-title { font-family: 'Source Serif 4', Georgia, serif; font-size: 16px; font-weight: 600; fill: #0B0C0E; }
+      .body-text { font-family: 'Source Serif 4', Georgia, serif; font-size: 12px; fill: #6F6A62; }
+      .code-text { font-family: 'IBM Plex Mono', monospace; font-size: 11px; fill: #1F6E94; }
+      .badge { font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; font-weight: 600; letter-spacing: 0.08em; }
+    </style>
+  </defs>
+
+  <rect width="100%" height="100%" fill="#EDE8DC" rx="8"/>
+
+  <!-- Header -->
+  <text x="40" y="45" class="title">Security Blast Radius: Separation of Authority</text>
+  <text x="40" y="68" class="subtitle">SPLITTING ROUTINE APPLICATION DEPLOYS FROM IDENTITY-PLANE ELEVATION</text>
+
+  <!-- Low Blast Radius: App Deploys -->
+  <g transform="translate(40, 105)">
+    <rect width="390" height="235" rx="6" fill="#E2DDD1" stroke="#2E6B31" stroke-width="1.4"/>
+    <rect x="0" y="0" width="390" height="32" rx="6" fill="#2E6B31" opacity="0.15"/>
+    <text x="18" y="22" class="badge" fill="#2E6B31">SURFACE 1 · LOW BLAST RADIUS (AUTONOMOUS)</text>
+    <text x="18" y="58" class="tier-title">Application Deployments</text>
+    <text x="18" y="80" class="subtitle">CONTAINER IMAGES · HELM VALUES · APP CODE</text>
+    <text x="18" y="112" class="body-text">• Merge to main is approval to deploy.</text>
+    <text x="18" y="132" class="body-text">• Argo CD pulls and reconciles immutable digests.</text>
+    <text x="18" y="152" class="body-text">• Non-elevation event: no privileged secrets required.</text>
+    <text x="18" y="172" class="body-text">• Rollback: point Argo back to prior tag/digest.</text>
+    <line x1="18" y1="192" x2="372" y2="192" stroke="#B0A898" stroke-width="1"/>
+    <text x="18" y="215" class="code-text">Auth: CI Robot Token (Push/Pull only)</text>
+  </g>
+
+  <!-- High Blast Radius: Identity & Infra Mutations -->
+  <g transform="translate(470, 105)">
+    <rect width="390" height="235" rx="6" fill="#E2DDD1" stroke="#A3222F" stroke-width="1.6"/>
+    <rect x="0" y="0" width="390" height="32" rx="6" fill="#A3222F" opacity="0.2"/>
+    <text x="18" y="22" class="badge" fill="#A3222F">SURFACE 2 · HIGH BLAST RADIUS (ELEVATION)</text>
+    <text x="18" y="58" class="tier-title">Identity &amp; Control Plane Mutations</text>
+    <text x="18" y="80" class="subtitle">KEYCLOAK · OPENBAO · HARBOR RULES · OIDC</text>
+    <text x="18" y="112" class="body-text">• Pull Request runs read-only `terraform plan`.</text>
+    <text x="18" y="132" class="body-text">• `apply` on merge is an explicit ELEVATION event.</text>
+    <text x="18" y="152" class="body-text">• Gated by Valkyrie MFAA single-use approval.</text>
+    <text x="18" y="172" class="body-text">• Approval is cryptographically bound to sha256(plan).</text>
+    <line x1="18" y1="192" x2="372" y2="192" stroke="#B0A898" stroke-width="1"/>
+    <text x="18" y="215" class="code-text" style="fill: #A3222F;">Auth: OpenBao AppRole + Action-Hash Gate</text>
+  </g>
+</svg>
