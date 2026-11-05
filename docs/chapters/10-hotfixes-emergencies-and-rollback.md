@@ -23,28 +23,11 @@ At the foundation of RROM emergency management lies a core operational principle
 >
 > **Rollback does not compile code. Rollback does not rebuild containers. Rollback does not delete artifacts.**
 
-```
-+----------------------------------------------------------------------------------------------------+
-|                                    THE ROLLBACK AXIOM IN PRACTICE                                  |
-+----------------------------------------------------------------------------------------------------+
-|                                                                                                    |
-|   1. THE BROKEN RELEASE (v1.4.2)                                                                   |
-|   GitOps Pointer: targetRevision: v1.4.2 ──> Pinned Digest: @sha256:7f9a...3c (:b42) [CRASHING]    |
-|                                                                                                    |
-|                                         │                                                          |
-|                                         │ REPOINT POINTER (Atomic Git Commit)                      |
-|                                         ▼                                                          |
-|                                                                                                    |
-|   2. THE RESTORED STABLE RELEASE (v1.4.1)                                                          |
-|   GitOps Pointer: targetRevision: v1.4.1 ──> Pinned Digest: @sha256:4a8b...1f (:b41) [HEALTHY]     |
-|                                                                                                    |
-|   ==============================================================================================   |
-|   HARBOR OCI REGISTRY (IMMUTABLE PHYSICAL STORAGE):                                                |
-|   [sha256:4a8b...1f] (:b41, :v1.4.1)  ──> REMAINS IMMUTABLE & PRE-CACHED ON ALL K3S WORKER NODES  |
-|   [sha256:7f9a...3c] (:b42, :v1.4.2)  ──> QUARANTINED BUT PRESERVED FOR OFFLINE FORENSIC DEBUGGING |
-|                                                                                                    |
-+----------------------------------------------------------------------------------------------------+
-```
+| State | Release Version | Pinned Target & Storage Invariant |
+| :--- | :--- | :--- |
+| **Broken Release** | `v1.4.2` | Pointed to digest `@sha256:7f9a...3c` (`:b42`). Pods crashing in production. |
+| **Restored Release** | `v1.4.1` | Repoints GitOps pointer to proven digest `@sha256:4a8b...1f` (`:b41`). |
+| **Harbor Registry** | Physical Storage | Both digests remain immutable in Harbor; `@sha256:4a8b...1f` is pre-cached on node disks. |
 
 ### Deconstructing the Mathematics of Immutability
 
@@ -77,22 +60,16 @@ Because container engines (containerd / CRI-O) cache unpacked filesystem layers 
 
 The image pull operation completes in **0.00 seconds**. The orchestration layer immediately performs an in-memory pod swap, terminating the defective containers and spinning up the pre-warmed healthy containers with zero network I/O.
 
-```
-+----------------------------------------------------------------------------------------------------+
-|                               THE 60-SECOND RECOVERY TIMELINE                                      |
-+----------------------------------------------------------------------------------------------------+
-|                                                                                                    |
-|  T+00s   P0 Alert Confirmed: Error rate > 40% on release v1.4.2                                    |
-|  T+10s   Operator identifies previous stable release tag: v1.4.1 (digest sha256:4a8b...1f)         |
-|  T+22s   Operator commits pointer repoint in norns-gitops repository                               |
-|  T+28s   Commit pushed to git host; Argo CD webhook or fast-poll detects targetRevision change     |
-|  T+35s   Argo CD issues Kube-API patch; K3s controller initiates rolling pod replacement          |
-|  T+42s   CRI-O / containerd finds sha256:4a8b...1f in LOCAL NODE CACHE (0 KB downloaded)            |
-|  T+50s   Healthy pods pass readiness probes; traffic shifts via Service endpoints                 |
-|  T+58s   Automated runtime proof asserts HTTP 200 on /api/health; error rate drops to baseline     |
-|                                                                                                    |
-+----------------------------------------------------------------------------------------------------+
-```
+| Timeline | Event | Action & CRI Layer Response |
+| :--- | :--- | :--- |
+| **T+00s** | P0 Alert Confirmed | Error rate $> 40\%$ on release `v1.4.2`; on-call lead initiates pointer rollback. |
+| **T+10s** | Identify Target | Identifies previous stable release: `v1.4.1` (digest `sha256:4a8b...1f`). |
+| **T+22s** | Commit Repoint | Operator commits pointer repoint in `norns-gitops` repository. |
+| **T+28s** | Webhook Fast-Poll | Pushed to git host; Argo CD detects `targetRevision` change immediately. |
+| **T+35s** | Rollout Issued | Argo CD issues Kube-API patch; K3s controller initiates rolling replacement. |
+| **T+42s** | Local Node Cache | containerd finds `sha256:4a8b...1f` in local node cache (0 KB downloaded). |
+| **T+50s** | Pods Pass Readiness | Healthy pods pass readiness probes; traffic shifts via Service endpoints. |
+| **T+58s** | Runtime Proof | Automated runtime probe asserts HTTP 200 on `/api/health`; error rate normalizes. |
 
 ### Complete Terminal Walkthrough: The Live Rollback
 
@@ -253,46 +230,13 @@ $$\text{Emergency Worktree} \longrightarrow \text{Hotfix PR} \longrightarrow \te
 
 By keeping the release machinery standardized and highly automated, this entire sequence executes in **under five minutes**, ensuring that speed does not compromise safety.
 
-```
-+----------------------------------------------------------------------------------------------------+
-|                               THE ACCELERATED HOTFIX PIPELINE (< 5 MIN)                            |
-+----------------------------------------------------------------------------------------------------+
-|                                                                                                    |
-|  [ AUTHOR ]                                                                                        |
-|  1. Worktree branch: hotfix/connection-leak                                                        |
-|  2. Fix defect + add failing test                                                                  |
-|  3. Submit Hotfix PR (Title: "fix(core): close leak in connection pool [P0-HOTFIX]")               |
-|                                                                                                    |
-|             │                                                                                      |
-|             ▼  (Time: T+01m15s)                                                                    |
-|  [ CI INGRESS RUNNER ]                                                                             |
-|  4. Merge to main trunk after peer review / emergency approval                                    |
-|  5. CI runs fast unit test suite                                                                   |
-|  6. Single Build Unit: Compiles once -> harbor.ravenhelm.dev/ravenmaskos/vitki:b43                 |
-|  7. Tags :b43, :sha-4f81c9a, and updates :uat pointer                                              |
-|                                                                                                    |
-|             │                                                                                      |
-|             ▼  (Time: T+02m45s)                                                                    |
-|  [ UAT SMOKE GATE ]                                                                                |
-|  8. Automatic deployment to staging/UAT environment                                                |
-|  9. 120-second synthetic smoke assertion proves defect resolution and connection stability        |
-|                                                                                                    |
-|             │                                                                                      |
-|             ▼  (Time: T+03m30s)                                                                    |
-|  [ RELEASE CUSTODIAN ]                                                                             |
-|  10. Executes: scripts/release-pr.sh b43 v1.4.3                                                    |
-|  11. check-release-source-parity.sh proves ZERO source drift between b43 and release PR            |
-|  12. Harbor retags existing digest with v1.4.3 (ZERO REBUILDS)                                      |
-|                                                                                                    |
-|             │                                                                                      |
-|             ▼  (Time: T+04m15s)                                                                    |
-|  [ DELIVERY CLOSER ]                                                                               |
-|  13. Merges Release PR -> Pushes GitOps bump to norns-gitops                                      |
-|  14. Argo CD reconciles production cluster to digest sha256:881c...99                              |
-|  15. Runtime proof of life collected on production endpoints                                      |
-|                                                                                                    |
-+----------------------------------------------------------------------------------------------------+
-```
+| Hotfix Phase | Target Window | Operator Action & Invariant Gate |
+| :--- | :--- | :--- |
+| **1. Author Surgical Patch** | T+01m15s | Dedicated worktree; fix defect with regression test; open Hotfix PR against `main`. |
+| **2. Trunk Ingress Build** | T+02m45s | Emergency merge; CI compiles `:b43` once; stores immutable digest in Harbor; deploys `:uat`. |
+| **3. UAT Smoke Gate** | T+03m30s | 120-second synthetic smoke assertion proves defect resolution and connection stability. |
+| **4. Release Custodian Gate** | T+04m15s | `release-pr.sh b43 v1.4.3`; `check-release-source-parity.sh` asserts zero code drift; Harbor retags. |
+| **5. Delivery Closer & Sync** | T+05m00s | Merges Release PR; Argo CD reconciles production cluster to digest; live runtime proof confirmed. |
 
 ### Hotfix Execution Protocol: Step-by-Step
 
@@ -387,28 +331,12 @@ Under RROM, **deleting failing artifacts from registries or git history is stric
 
 Instead of deleting broken builds, RROM enforces **quarantine and metadata invalidation**. The defective artifact remains physically intact in Harbor, but is locked down so that no production orchestrator can pull or execute it.
 
-```
-+----------------------------------------------------------------------------------------------------+
-|                                  THE HARBOR QUARANTINE ARCHITECTURE                                |
-+----------------------------------------------------------------------------------------------------+
-|                                                                                                    |
-|   1. DEFECTIVE BUILD IMMUTABILITY LOCK                                                             |
-|   harbor.ravenhelm.dev/ravenmaskos/vitki@sha256:7f9a...3c                                          |
-|                                                                                                    |
-|   2. METADATA QUARANTINE TAGGING                                                                   |
-|   Add tag: :quarantined-INCIDENT-9842                                                              |
-|   Remove mutable tag: :uat                                                                         |
-|                                                                                                    |
-|   3. ADMISSION CONTROLLER ENFORCEMENT (Kyverno / OPA Gatekeeper)                                   |
-|   Policy: reject-quarantined-digests                                                               |
-|   DENY Rule: If Pod.imageDigest == sha256:7f9a...3c ──> REJECT with admission error               |
-|                                                                                                    |
-|   4. ISOLATED FORENSIC SANDBOX                                                                     |
-|   Mount digest sha256:7f9a...3c inside ephemeral debug namespace (no ingress, mock DB)             |
-|   Attach delve / gdb / eBPF profilers to inspect memory maps without impacting production          |
-|                                                                                                    |
-+----------------------------------------------------------------------------------------------------+
-```
+| Quarantine Stage | Layer & Mechanism | Security & Operational Invariant |
+| :--- | :--- | :--- |
+| **1. Immutability Lock** | Harbor Storage | Digest `@sha256:7f9a...3c` retained; deletion prevented for forensic chain of custody. |
+| **2. Metadata Retagging** | Registry Manifest API | Adds `:quarantined-INCIDENT-9842`; unlinks moving `:uat` pointer immediately. |
+| **3. Admission Enforcement** | Kyverno / OPA Gatekeeper | Cluster policy rejects any pod spec citing quarantined digest with admission webhook error. |
+| **4. Forensic Sandbox** | Ephemeral Debug Pod | Mounts digest inside isolated namespace (no network ingress, mock DB) for gdb/eBPF analysis. |
 
 #### Step 1: Retag the Digest for Quarantine
 Using the Harbor REST API or CLI, attach an explicit quarantine tag to the immutable digest of build `b42` and record the incident reference:

@@ -18,40 +18,14 @@ This playbook establishes the engineering principles and concrete reference impl
 
 Package managers are not mere archive unpackers; they are hermetic build orchestrators. Every modern package manager isolates source builds into a dedicated, ephemeral filesystem hierarchy prior to staging artifacts into their final system destinations. 
 
-```
-+--------------------------------------------------------------------------------------------------+
-|                            THE PACKAGE MANAGER BUILD SANDBOX LIFECYCLE                           |
-+--------------------------------------------------------------------------------------------------+
-|                                                                                                  |
-|   1. FETCH & VERIFY                                                                              |
-|      Tarball Archive (v1.4.2.tar.gz) ──> Cryptographic SHA-256 Checksum Validation               |
-|                                                                                                  |
-|   2. EPHEMERAL UNPACK                                                                            |
-|      Extracted into isolated scratch directory (e.g., /private/tmp/tool-build-sandbox/)          |
-|                                                                                                  |
-|   3. SANDBOXED MUTATION (RP-7)                                                                   |
-|      ┌────────────────────────────────────────────────────────────────────────┐                  |
-|      │  Homebrew:  inreplace "Cargo.toml", /^version = .*/, "version = ..."  │                  |
-|      │  Arch AUR:  sed -i "s/^version = .*/version = \"${pkgver}\"/" ...     │                  |
-|      │  Nix Flake: substituteInPlace Cargo.toml --replace-fail "..." "..."    │                  |
-|      │  Alpine:    sed -i "s/__VERSION__/${pkgver}/g" ...                     │                  |
-|      └────────────────────────────────────────────────────────────────────────┘                  |
-|                                                                                                  |
-|   4. HERMETIC COMPILATION                                                                        |
-|      Compiler invoked with vendor caches and strict flags:                                       |
-|      `cargo install --locked`, `go build -ldflags "..."`, `npm install --build-from-source`      |
-|                                                                                                  |
-|   5. STAGING & PACKAGING                                                                         |
-|      Binaries moved to Cellar/prefix; symlinks created in bin/                                   |
-|                                                                                                  |
-|   6. POST-INSTALL VERIFICATION                                                                   |
-|      `test do` execution inside a fresh, unprivileged subshell                                   |
-|                                                                                                  |
-|   7. COMPLETE TEARDOWN                                                                           |
-|      Scratch build directory is destroyed. Upstream git commits remain 100% pristine.            |
-|                                                                                                  |
-+--------------------------------------------------------------------------------------------------+
-```
+| Sandbox Phase | Execution Target | Operational Mechanism & Invariant |
+| :--- | :--- | :--- |
+| **1. Fetch & Verify** | Workstation Cache | Release tarball downloaded; SHA-256 checksum cryptographically validated against formula hash. |
+| **2. Ephemeral Unpack** | `/private/tmp/brew-sandbox/` | Unpacks source tree into temporary isolated directory with zero git repository metadata. |
+| **3. Sandboxed Mutation** | Temporary Source Files | Formula executes dynamic inreplace on `Cargo.toml`/`Cargo.lock`; git commit remains 100% pristine. |
+| **4. Hermetic Build** | Native Compilers | Invokes compiler with strict lockfile flags (`cargo install --locked`, `go build -ldflags "..."`). |
+| **5. Cellar Staging** | Local Package Prefix | Installs compiled binary into versioned prefix (`/opt/homebrew/Cellar/.../bin/`); symlinks to `PATH`. |
+| **6. Verification & Wipe** | Fresh Subshell | Executes `test do` block asserting binary reports correct version; sandbox directory wiped completely. |
 
 ### Comparative Sandboxing Matrix
 
@@ -573,33 +547,12 @@ jobs:
 
 When implementing sandboxed inreplace patterns, operators must guard against four common architectural failures:
 
-```
-+--------------------------------------------------------------------------------------------------+
-|                            FORMULA INREPLACE ANTI-PATTERNS & REMEDIES                           |
-+--------------------------------------------------------------------------------------------------+
-|                                                                                                  |
-|   ANTI-PATTERN 1: The Upstream Release Commit                                                    |
-|   [Problem]  Committing `bump: Cargo.toml to 1.4.2` on a release branch.                         |
-|   [Impact]   Invalidates container SHA256 digests; violates RP-5.                                |
-|   [Remedy]   Keep git manifests pinned to static placeholder; mutate only in formula sandbox.    |
-|                                                                                                  |
-|   ANTI-PATTERN 2: Loose Regular Expression Substitution                                          |
-|   [Problem]  `inreplace "Cargo.toml", /version = .*/, "version = \"#{version}\""`                |
-|   [Impact]   Accidentally rewrites dependencies named `version` or dependency version constraints.|
-|   [Remedy]   Anchor regex strictly: `/^version\s*=\s*"[^"]+"/` or match under `[package]` header. |
-|                                                                                                  |
-|   ANTI-PATTERN 3: Network Leakage in Build Sandbox                                               |
-|   [Problem]  Invoking `cargo build` or `npm install` without lockfiles or offline flags.        |
-|   [Impact]   Pulls unvetted transitive dependencies; breaks air-gapped / offline installations.  |
-|   [Remedy]   Use `std_cargo_args` with `--locked`, vendor crates, or use Nix pure derivations.    |
-|                                                                                                  |
-|   ANTI-PATTERN 4: Omission of Lockfile Synchronization                                           |
-|   [Problem]  Rewriting `Cargo.toml` but ignoring `Cargo.lock`.                                   |
-|   [Impact]   Cargo detects lockfile mismatch and aborts build when `--locked` is enforced.       |
-|   [Remedy]   Execute dual `inreplace` on both manifest and lockfile in lockstep.                  |
-|                                                                                                  |
-+--------------------------------------------------------------------------------------------------+
-```
+| Inreplace Anti-Pattern | Root Problem & Pathology | Operational Remedy |
+| :--- | :--- | :--- |
+| **1. Upstream Release Commits** | Committing version bump to `Cargo.toml` on git release branch. | Mutates application source; breaks single-build rule and invalidates pre-tested digests. Keep source pegged to placeholder; mutate only in sandbox. |
+| **2. Loose Regex Substitution** | `inreplace "Cargo.toml", /version = .*/, "..."` | Accidentally rewrites dependency versions or comments. Anchor regex strictly: `/^version\s*=\s*"[^"]+"/` or match under `[package]` header. |
+| **3. Network Leakage** | Invoking `cargo build` or `npm install` without lockfiles or offline flags. | Pulls unvetted transitive packages; breaks offline/air-gapped builds. Enforce `--locked`, vendor dependencies, or use Nix pure derivations. |
+| **4. Lockfile Desynchronization** | Rewriting `Cargo.toml` while ignoring `Cargo.lock`. | Cargo aborts build due to checksum mismatch under `--locked`. Execute dual `inreplace` across manifest and lockfile in lockstep. |
 
 ---
 

@@ -12,34 +12,12 @@ This is the failure mode the Ravenhelm Release Operations Methodology (RROM) is 
 
 Under RROM, release management is partitioned into four distinct, non-overlapping roles with rigid boundary contracts:
 
-```
-+-------------------------------------------------------------------------------------------------+
-|                                 THE RROM OPERATOR ROLES                                         |
-+-------------------------------------------------------------------------------------------------+
-|                                                                                                 |
-|   +-----------------------+              +-----------------------+                              |
-|   |      THE AUTHOR       |              |   RELEASE CUSTODIAN   |                              |
-|   | Human / AI Worker     |              | Lead / Release Bot    |                              |
-|   |                       |              |                       |                              |
-|   | - Disposable Worktree |              | - Identifies :b<N>    |                              |
-|   | - Application Diff    | ───────────> | - Runs release-pr.sh  | ──────────┐                  |
-|   | - Unit & Integration  |  PR to main  | - Proves Parity (RP-5)|           │                  |
-|   | - Zero Release Tags   |              | - Annotated Git Tag   |           │                  |
-|   +-----------------------+              +-----------------------+           │                  |
-|                                                                              │                  |
-|                                                                              ▼                  |
-|   +-----------------------+              +-----------------------+    Release PR on main        |
-|   |     THE GATEKEEPER    |              |    DELIVERY CLOSER    |           │                  |
-|   | Sovereign Human Seat  |              | Human Fleet Supervisor|           │                  |
-|   |                       |              |                       |           │                  |
-|   | - High Blast Radius   |              | - Holds Merge Seat    | <─────────┘                  |
-|   | - Valkyrie MFAA Auth  | ───────────> | - Unbroken Custody    |                              |
-|   | - Plan Hash Signing   | Action Token | - Merge-Then-Deploy   | ──────────> PRODUCTION       |
-|   | - Single-Use Elevation|              | - Live Proof of Life  |             CONVERGENCE      |
-|   +-----------------------+              +-----------------------+                              |
-|                                                                                                 |
-+-------------------------------------------------------------------------------------------------+
-```
+| Role | Actor Profile | Workspace & Scope | Authority Boundary |
+| :--- | :--- | :--- | :--- |
+| **The Author** | Human Engineer / AI Worker | Dedicated git worktree (`feat/*`); application diffs, unit tests. | Strictly prohibited from tagging releases, editing values manifests, or deploying. |
+| **Release Custodian** | Tech Lead / Release Bot | Integration trunk (`main`); identifies `:b<N>`, generates release PRs. | Enforces Source Parity Rule (RP-5); creates annotated tags; runs parity checks. |
+| **Delivery Closer** | Fleet Supervisor (Human) | Production release seat; merge authority. | Executes Merge-Then-Deploy (RP-10); unmerged PRs stay unmerged; verifies runtime proof. |
+| **The Gatekeeper** | Sovereign Operator (Human) | High blast radius infrastructure & cutovers. | Issues cryptographic plan-hash signatures via hardware FIDO2 key for elevation. |
 
 These roles are not job titles; they are sovereign runtime hats governed by explicit capability ceilings and invariants. An actor—whether a principal engineer, a platform lead, or an autonomous AI agent—steps into a specific role, executes its bounded mandate under strict custody rules, and yields the seat.
 
@@ -182,40 +160,14 @@ Routine deployments reconcile application code within existing architectures. Cu
 ### The Valkyrie MFAA Protocol
 To ensure that elevation events cannot be triggered by compromised CI runners, stolen developer laptops, or runaway autonomous agents, Ravenhelm enforces the **Valkyrie Multi-Factor Action Approval (MFAA)** protocol.
 
-```
-+-------------------------------------------------------------------------------------------------+
-|                                 VALKYRIE MFAA PROTOCOL FLOW                                     |
-+-------------------------------------------------------------------------------------------------+
-|                                                                                                 |
-|   CI Pipeline (Unprivileged)               Gatekeeper (Human)                 OpenBao / Engine  |
-|   ─────────────────────────               ──────────────────                 ────────────────  |
-|               │                                    │                                  │         |
-|   1. Generate Execution Plan                       │                                  │         |
-|      (terraform plan -out=plan.bin)                │                                  │         |
-|               │                                    │                                  │         |
-|   2. Compute Plan Digest                           │                                  │         |
-|      SHA256(plan.bin) = 9f8a...                    │                                  │         |
-|               │                                    │                                  │         |
-|   3. Issue Valkyrie Challenge                      │                                  │         |
-|      ────────────────────────────────────────────> │                                  │         |
-|      Payload: {action, target, plan_sha256}        │                                  │         |
-|                                                    │                                  │         |
-|                                            4. Inspect Plan Diff                       │         |
-|                                            5. Sign Challenge via FIDO2 Key            │         |
-|                                               (Ed25519 Hardware Signature)            │         |
-|                                                    │                                  │         |
-|   6. Receive Single-Use Action Token               │                                  │         |
-|      <──────────────────────────────────────────── │                                  │         |
-|               │                                                                       │         |
-|   7. Execute Elevation with Token                                                     │         |
-|      ───────────────────────────────────────────────────────────────────────────────> │         |
-|                                                                                       │         |
-|                                                    8. Verify: Token.PlanSHA == Plan.SHA │       |
-|                                                    9. Burn Token (Single-Use)         │         |
-|                                                   10. Apply Changes                   │         |
-|                                                                                       │         |
-+-------------------------------------------------------------------------------------------------+
-```
+| Protocol Step | Originator | Target | Action & Cryptographic Invariant |
+| :--- | :--- | :--- | :--- |
+| **1. Plan Generation** | Unprivileged CI | Local Workspace | Generates deterministic execution plan (`terraform plan -out=plan.bin`). |
+| **2. Hash Computation** | Unprivileged CI | Local Workspace | Computes immutable SHA-256 digest of plan file: `SHA256(plan.bin) = 9f8a...`. |
+| **3. Challenge Dispatch** | Unprivileged CI | Human Gatekeeper | Submits challenge payload: `{action: "apply", target: "prod", plan_sha256}`. |
+| **4. Human Inspection** | Human Gatekeeper | Out-of-Band Channel | Inspects plan diff; verifies no unauthorized destructive actions. |
+| **5. Hardware Signing** | Human Gatekeeper | Unprivileged CI | Signs challenge using hardware FIDO2 key (Ed25519); issues single-use token. |
+| **6. Execution & Burn** | Unprivileged CI | Secret Engine | Secret engine verifies `Token.PlanSHA == Plan.SHA`, burns token, applies change. |
 
 The protocol operates under four ironclad phases:
 

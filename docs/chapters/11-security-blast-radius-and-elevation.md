@@ -14,33 +14,7 @@ Under the Ravenhelm Release Operations Methodology (RROM), this vulnerability is
 
 RROM mandates a mathematical and architectural partition of all operational mutations into two discrete, physically isolated security surfaces. Routine application changes are decoupled completely from control-plane and identity mutations. Under no circumstances is an automated system granted ambient authority to alter the security topology of an enterprise.
 
-```
-+---------------------------------------------------------------------------------------------------+
-|                           THE BLAST RADIUS PARTITIONING MODEL (RP-17)                             |
-+---------------------------------------------------------------------------------------------------+
-|                                                                                                   |
-|  SURFACE 1: AUTONOMOUS APPLICATION MUTATIONS (LOW BLAST RADIUS)                                   |
-|  +---------------------------------------------------------------------------------------------+  |
-|  | Scope:        Container images, Helm values, environment variables, frontend assets.        |  |
-|  | Authority:    The Delivery Closer (Autonomous CI / Merge to main is approval to deploy).   |  |
-|  | Credentials:  Scoped, ephemeral registry push tokens. Zero cluster admin secrets.           |  |
-|  | Network:      Runner cannot route to Kubernetes API or OpenBao control plane.               |  |
-|  | Rollback:     Deterministic GitOps pointer revert to prior immutable digest (RP-14).       |  |
-|  +---------------------------------------------------------------------------------------------+  |
-|                                                │                                                  |
-|                                      [ HARD CRYPTOGRAPHIC ISOLATION ]                             |
-|                                                │                                                  |
-|  SURFACE 2: CONTROL PLANE & IDENTITY MUTATIONS (HIGH BLAST RADIUS)                                |
-|  +---------------------------------------------------------------------------------------------+  |
-|  | Scope:        Keycloak/Zitadel realms, OpenBao policies, Harbor RBAC, DB DDL, CNI/firewalls. |  |
-|  | Authority:    The Gatekeeper (Sovereign Human Seat via Multi-Factor Action Approval).      |  |
-|  | Invariant:    The Ehwaz Doctrine — Zero ambient authority. Elevation is single-use only.   |  |
-|  | Protocol:     Plan SHA-256 hash bound to out-of-band biometric approval token.              |  |
-|  | Enforcement:  Runner executes `terraform apply` ONLY with matching hash-bound token.        |  |
-|  +---------------------------------------------------------------------------------------------+  |
-|                                                                                                   |
-+---------------------------------------------------------------------------------------------------+
-```
+![Diagram 4: Blast Radius Partitioning](diagram4-blast-radius)
 
 By enforcing a hard isolation boundary between these two surfaces, RROM guarantees that even if an autonomous worker or CI runner is fully compromised, the blast radius of that compromise is strictly contained within an unprivileged application container, unable to pivot laterally into root identity, access control, or datastore engines.
 
@@ -167,50 +141,14 @@ Runner asserts: sha256(local_binary) == token.hash ───[PASS]──> Execut
 
 The implementation of the Ehwaz Doctrine is governed by an exact seven-step cryptographic handshake executed between the CI Runner, the OpenBao Secrets Engine, the Valkyrie Multi-Factor Action Approval (MFAA) Broker, and the Human Gatekeeper.
 
-```
-+---------------------------------------------------------------------------------------------------+
-|                        THE ACTION-HASH ELEVATION PROTOCOL (STEPS 1-7)                             |
-+---------------------------------------------------------------------------------------------------+
-|                                                                                                   |
-|  CI RUNNER                     OPENBAO VAULT              VALKYRIE MFAA          HUMAN GATEKEEPER |
-|     │                                │                          │                        │        |
-|     │ 1. Authenticate Read-Only      │                          │                        │        |
-|     ├───────────────────────────────>│                          │                        │        |
-|     │    (tf-control-plane-plan)     │                          │                        │        |
-|     │<───────────────────────────────┤                          │                        │        |
-|     │    Read-Only Token             │                          │                        │        |
-|     │                                │                          │                        │        |
-|     │ 2. Compile Plan Binary         │                          │                        │        |
-|     │    `terraform plan -out=...`   │                          │                        │        |
-|     │    Compute SHA-256 Hash        │                          │                        │        |
-|     │                                │                          │                        │        |
-|     │ 3. Dispatch Elevation Challenge│                          │                        │        |
-|     ├──────────────────────────────────────────────────────────>│                        │        |
-|     │    { action, target, plan_hash, requester }               │                        │        |
-|     │                                │                          │ 4. Out-of-Band Push    │        |
-|     │                                │                          ├───────────────────────>│        |
-|     │                                │                          │    Inspect Diff & Hash │        |
-|     │                                │                          │    Biometric Sign      │        |
-|     │                                │                          │<───────────────────────┤        |
-|     │                                │                          │    FIDO2 Signed Token  │        |
-|     │ 5. Retrieve & Validate Token   │                          │                        │        |
-|     │<──────────────────────────────────────────────────────────┤                        │        |
-|     │    Assert: sha256 == token.hash│                          │                        │        |
-|     │                                │                          │                        │        |
-|     │ 6. Exchange for Apply Token    │                          │                        │        |
-|     ├───────────────────────────────>│                          │                        │        |
-|     │    Present Signed Valkyrie JWT │                          │                        │        |
-|     │<───────────────────────────────┤                          │                        │        |
-|     │    Short-Lived Apply Creds     │                          │                        │        |
-|     │    `terraform apply tfplan`    │                          │                        │        |
-|     │                                │                          │                        │        |
-|     │ 7. Consume Token & Audit       │                          │                        │        |
-|     ├──────────────────────────────────────────────────────────>│                        │        |
-|     │    POST /v1/approvals/consume  │                          │ Invalidate Token       │        |
-|     │    Append-Only Audit Logged    │                          │ Zero Replay Window     │        |
-|     ▼                                ▼                          ▼                        ▼        |
-+---------------------------------------------------------------------------------------------------+
-```
+| Protocol Step | Actor & Target | Payload & Cryptographic Invariant |
+| :--- | :--- | :--- |
+| **1. Read-Only Auth** | CI Runner $\to$ OpenBao Vault | Authenticates using unprivileged role; retrieves temporary read-only state access token. |
+| **2. Plan Generation** | CI Runner (Local) | Compiles deterministic execution plan binary; computes SHA-256 hash of `tfplan`. |
+| **3. Challenge Dispatch** | CI Runner $\to$ Valkyrie MFAA | Submits elevation challenge: `{action: "apply", target: "prod", plan_hash, requester}`. |
+| **4. Human Biometric Sign** | Valkyrie $\to$ Human Gatekeeper | Out-of-band mobile/workstation prompt; operator verifies diff; signs challenge with FIDO2 hardware key. |
+| **5. Token Exchange** | CI Runner $\to$ OpenBao Vault | Runner presents signed Valkyrie JWT; Vault asserts `Token.PlanHash == Plan.SHA256`; issues apply credentials. |
+| **6. Execution & Burn** | CI Runner $\to$ Production | Executes `terraform apply tfplan`; Valkyrie invalidates token immediately (single-use replay prevention). |
 
 ### Step 1: The Read-Only Plan Generation
 When a pull request altering Surface 2 manifests is opened or merged, the CI runner initializes an unprivileged environment. 

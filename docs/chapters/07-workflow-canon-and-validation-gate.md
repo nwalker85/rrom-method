@@ -33,33 +33,13 @@ Where:
 * $F = \{ \text{CONVERGED} \}$ is the sole terminal acceptance state.
 * $\delta: S \times \Sigma \to S \cup \{ \bot \}$ is the state transition function.
 
-```
-+-----------------------------------------------------------------------------------------------------------------------+
-|                                           THE RROM RELEASE STATE MACHINE                                              |
-+-----------------------------------------------------------------------------------------------------------------------+
-|                                                                                                                       |
-|   [ 1. INGRESS ]                                                                                                      |
-|         │  Event: Merge feature PR to main branch                                                                     |
-|         │  Action: CI runner builds container once; injects immutable OCI labels; pushes digest                       |
-|         ▼                                                                                                             |
-|   [ 2. CANDIDATE ]                                                                                                    |
-|         │  Event: Declarative sync to Staging / UAT                                                                   |
-|         │  Action: Automated canary probes, smoke tests, synthetic load over live network                             |
-|         ▼                                                                                                             |
-|   [ 3. PINNED ]                                                                                                       |
-|         │  Event: Release Custodian invokes scripts/release-pr.sh b<N> vX.Y.Z                                         |
-|         │  Guard: check-release-source-parity.sh asserts ZERO application code drift (RP-5)                            |
-|         ▼                                                                                                             |
-|   [ 4. PROMOTED ]                                                                                                     |
-|         │  Event: Delivery Closer merges Release PR & pushes annotated git tag                                        |
-|         │  Guard: check-release-tag.sh validates 3-way alignment (RP-4); OCI Registry retags digest                   |
-|         ▼                                                                                                             |
-|   [ 5. CONVERGED ]                                                                                                    |
-|            Event: GitOps repository bumps pinned digest; Argo CD reconciles cluster                                   |
-|            Guard: Live runtime probe satisfies /api/health; verified running on live network (RP-13)                  |
-|                                                                                                                       |
-+-----------------------------------------------------------------------------------------------------------------------+
-```
+| State | Ingress Event | Action & Verification Gate |
+| :--- | :--- | :--- |
+| **1. INGRESS** | Feature PR merged to `main` | CI builds container once; pushes `:b<N>` and content digest `@sha256:...` to Harbor. |
+| **2. CANDIDATE** | Declarative sync to Staging/UAT | Automatic rollout to staging; synthetic integration probes hammer endpoints over live network. |
+| **3. PINNED** | Custodian runs `release-pr.sh` | Pins chart and docs; `check-release-source-parity.sh` asserts zero code drift (RP-5). |
+| **4. PROMOTED** | Closer merges PR & pushes tag | `check-release-tag.sh` verifies 3-way alignment; Registry API retags digest to `:vX.Y.Z`. |
+| **5. CONVERGED** | Argo CD reconciles GitOps repo | Pinned digest deployed to pods; live runtime health probes query active network interface. |
 
 ### The Fail-Closed Transition Invariant
 
@@ -228,6 +208,9 @@ The `scripts/release-pr.sh` utility performs the following discrete actions:
    * **`CHANGELOG.md`**: Prepends a clean markdown changelog section documenting the release version, release date, build identifier, and digest.
 
 ### The Source Parity Guard: `check-release-source-parity.sh`
+
+![Diagram 3: Source Parity Triangle](diagram3-parity-triangle)
+
 Before opening the release pull request, the script executes the mandatory gate check:
 
 ```bash

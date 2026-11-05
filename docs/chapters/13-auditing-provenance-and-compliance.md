@@ -10,21 +10,13 @@ Under the Ravenhelm Release Operations Methodology (RROM), **compliance is not a
 
 The Core Axiom—*Builds are the unit; releases are names*—fundamentally transforms the auditing paradigm. In conventional architectures where releases rebuild code, artifact provenance is broken by design: the image validated in staging is an unverified twin of the image running in production. Under RROM, because code is compiled exactly once on integration to trunk (`main`) and release promotion is strictly an in-place metadata operation, an unbroken chain of cryptographic custody extends from the developer's signed commit to the live container runtime.
 
-```text
-+---------------------------------------------------------------------------------------------------+
-|                              THE FIVE-POINT CRYPTOGRAPHIC CUSTODY CHAIN                           |
-+---------------------------------------------------------------------------------------------------+
-|  1. AUTHOR IDENTITY         | Signed Git Commit (SSH / GPG) bound to verified author ID           |
-|                             |                                                                     |
-|  2. INTEGRATION PROVENANCE  | CI Build Run (:b<N>), ephemeral runner attestations, build log hash |
-|                             |                                                                     |
-|  3. SUPPLY CHAIN INVENTORY  | CycloneDX / SPDX SBOM + in-toto Attestation signed via Cosign       |
-|                             |                                                                     |
-|  4. REGISTRY IMMUTABILITY   | Content-addressed SHA-256 digest in Harbor OCI Registry             |
-|                             |                                                                     |
-|  5. RUNTIME RECONCILIATION  | GitOps pinned values.yaml + Argo CD sync ledger + Pod status.imageID|
-+---------------------------------------------------------------------------------------------------+
-```
+| Custody Link | Verification Anchor | Cryptographic Artifact & Invariant |
+| :--- | :--- | :--- |
+| **1. Author Identity** | Signed Git Commit | Cryptographically signed commit (SSH / GPG) bound to verified author ID. |
+| **2. Integration Provenance** | Trunk CI Build | Monotonic build number (`:b<N>`), ephemeral runner attestations, build log hash. |
+| **3. Supply Chain Inventory** | CycloneDX / SPDX SBOM | In-toto attestation signed with Cosign key; vulnerability scan threshold pass. |
+| **4. Registry Immutability** | Harbor OCI Registry | Content-addressed SHA-256 digest; tag immutability lock enforced. |
+| **5. Runtime Reconciliation** | Argo CD Controller | GitOps `values.yaml` pinned to digest; container runtime executes verified `status.imageID`. |
 
 Every deployed workload in an RROM-governed cluster must satisfy this five-point custody chain. Any binary, package, or container layer that cannot prove its provenance back through this unbroken chain is categorized as an untrusted foreign artifact and evicted from the runtime.
 
@@ -517,25 +509,11 @@ This single JSON payload provides unambiguous, mathematically unassailable proof
 
 RROM's architectural guarantees map directly onto modern enterprise and government security mandates. Rather than treating compliance as a documentation layer grafted on top of messy processes, RROM's primitives satisfy control objectives natively.
 
-```text
-+---------------------------------------------------------------------------------------------------+
-|                                 ENTERPRISE COMPLIANCE MATRIX                                      |
-+--------------------------+--------------------------------------+---------------------------------+
-| SECURITY FRAMEWORK       | CONTROL REQUIREMENT                  | RROM NATIVE MECHANISM           |
-+--------------------------+--------------------------------------+---------------------------------+
-| SLSA Level 3 & Level 4   | Hermetic, Isolated Builds            | Single ingress build on :main   |
-|                          | Non-Falsifiable Provenance           | in-toto attestation via Cosign  |
-|                          | Two-Party Review / Zero Ambient Auth | Release PR gate & no build keys |
-+--------------------------+--------------------------------------+---------------------------------+
-| Executive Order 14028    | Machine-Readable SBOM                | Syft CycloneDX 1.5 & SPDX 2.3   |
-| & NIST SP 800-218        | Continuous Vulnerability Scanning    | Ingress Grype scan + Cosign att |
-| (SSDF)                   | Provenance & Tamper-Proof Storage    | OCI 1.1 Referrers in Harbor     |
-+--------------------------+--------------------------------------+---------------------------------+
-| SOC 2 Type II            | CC 6.8: Unauthorized Software Gate   | Verification Triangle & Kyverno |
-| (Trust Services Criteria)| CC 7.1: Change Authorization Gate    | Operator Gatekeeper Release PR  |
-|                          | CC 8.1: Complete Audit Traceability  | Immutable :b<N> to SHA link     |
-+--------------------------+--------------------------------------+---------------------------------+
-```
+| Security Framework | Control Requirement | RROM Native Mechanism |
+| :--- | :--- | :--- |
+| **SLSA Level 3 & Level 4** | Hermetic, isolated builds; non-falsifiable provenance; two-party review. | Single ingress build on `main`; in-toto attestation via Cosign; release PR gate with zero ambient keys. |
+| **Executive Order 14028 & NIST SP 800-218** | Machine-readable SBOM; continuous vulnerability scanning; tamper-proof storage. | Syft CycloneDX 1.5 & SPDX 2.3; Grype scan gate; OCI 1.1 Referrers stored in Harbor. |
+| **SOC 2 Type II (Trust Services Criteria)** | Unauthorized software gate (CC 6.8); change authorization gate (CC 7.1); audit trail (CC 8.1). | Verification Triangle & Kyverno gate; operator Gatekeeper release PR; immutable `:b<N>` to SHA link. |
 
 ### 1. SLSA (Supply-chain Levels for Software Artifacts) Level 3 & Level 4
 

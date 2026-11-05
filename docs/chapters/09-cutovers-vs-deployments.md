@@ -14,30 +14,10 @@ A deploy reconciles an existing system within the bounds of an established archi
 
 Where routine deployments are autonomous and continuous under the *Merge-Then-Deploy* mandate (RP-10), architectural cutovers are strictly governed by **Principle RP-11: Cutovers Require ADRs**. Cutovers suspend autonomous deployment pipelines, demand human-in-the-loop elevation, and require multi-phase migration protocols before a single byte of live production traffic may be redirected.
 
-```
-+---------------------------------------------------------------------------------------------------+
-|                              THE OPERATIONAL DICHOTOMY (RP-11)                                    |
-+---------------------------------------------------------------------------------------------------+
-|                                                                                                   |
-|    ROUTINE DEPLOYMENT (Autonomous / Continuous)                                                   |
-|    +--------------------+       +--------------------+       +--------------------+               |
-|    | Author Pull Req    | ----> | CI Ingress Build   | ----> | GitOps Digest Bump | ----> PROD    |
-|    | (Same Stack/Repo)  |       | (:b<N> immutable)  |       | (Argo CD Converge) |               |
-|    +--------------------+       +--------------------+       +--------------------+               |
-|                                                                                                   |
-|    ARCHITECTURAL CUTOVER (Elevated / Multi-Phase Gate)                                            |
-|    +--------------------+       +--------------------+       +--------------------+               |
-|    | Architectural ADR  | ----> | Dual-Write Expand  | ----> | Backfill & Parity  | ──┐           |
-|    | (ADR-011 Gate)     |       | (Old + New Active) |       | (Byte Verification)|   │           |
-|    +--------------------+       +--------------------+       +--------------------+   │           |
-|                                                                                       │           |
-|    +--------------------+       +--------------------+       +--------------------+   │           |
-|    | Loud Decommission  | <---- | Contract / Retire  | <---- | Shadow Traffic /   | <─┘           |
-|    | (Tear Down Old)    |       | (Reads to New)     |       | Canary Validation  |               |
-|    +--------------------+       +--------------------+       +--------------------+               |
-|                                                                                                   |
-+---------------------------------------------------------------------------------------------------+
-```
+| Operational Pipeline | Ingress & Authority | Stages & Verification Gates |
+| :--- | :--- | :--- |
+| **Routine Deployment** | Autonomous CI; Merge to `main` is authority to deploy. | CI builds `:b<N>` once $\to$ GitOps repo updates pinned digest $\to$ Argo CD reconciles cluster $\to$ Live runtime health probe verifies. |
+| **Architectural Cutover** | Elevated Human Gatekeeper; ADR-011 authorization. | ADR accepted $\to$ Dual-Write active $\to$ Backfill & Parity audit $\to$ Shadow traffic $\to$ Canary traffic shift $\to$ Loud Decommission. |
 
 ---
 
@@ -67,33 +47,15 @@ A cutover occurs whenever a change crosses any of the following five Architectur
 4. **The Identity and Authorization Boundary:** Changing the trust domain, credential issuer, or authentication protocol (e.g., migrating from internal JWT signing to an external OIDC provider like Keycloak or Zitadel, or modifying Core RBAC/ReBAC permission models).
 5. **The Network Routing and Termination Boundary:** Shifting the public ingress gateway, replacing reverse proxies (e.g., Traefik to Envoy), or redirecting canonical DNS and edge TLS termination points.
 
-```
-+----------------------------------------------------------------------------------------------------+
-|                                BOUNDARY CLASSIFICATION MATRIX                                     |
-+--------------------------+-----------------------+-------------------------------------------------+
-| Operational Dimension    | Routine Deployment    | Architectural Cutover (ADR-011 Mandate)         |
-+--------------------------+-----------------------+-------------------------------------------------+
-| Source Code Base         | Same repository;      | New repository; complete language rewrite;      |
-|                          | incremental Git diff  | disparate architectural lineage                 |
-+--------------------------+-----------------------+-------------------------------------------------+
-| Persistence Engine       | Existing engine;      | Engine migration (e.g., Postgres -> ClickHouse);|
-|                          | additive migrations   | destructive/re-keyed table schema changes       |
-+--------------------------+-----------------------+-------------------------------------------------+
-| Inter-Process Transport  | Unchanged protocol    | Protocol change (e.g., REST -> NATS JetStream;  |
-|                          | and message schema    | synchronous RPC -> event-driven queue)          |
-+--------------------------+-----------------------+-------------------------------------------------+
-| Rollback Surface         | Trivial GitOps digest | Complex multi-stage rollback runbook;           |
-|                          | repointing (< 30s)    | persistent data forward-migration required      |
-+--------------------------+-----------------------+-------------------------------------------------+
-| In-Flight State          | Preserved via graceful| Invalidated unless an active state translation  |
-|                          | process termination   | layer bridges legacy and modern engines         |
-+--------------------------+-----------------------+-------------------------------------------------+
-| Governance Authority     | Delivery Closer       | Sovereign Gatekeeper (ADR + Signed Cutover Plan)|
-+--------------------------+-----------------------+-------------------------------------------------+
-| Verification Method      | Runtime Health Probe  | Shadow traffic parity, dual-read CRC audit,     |
-|                          | (`/api/health`)       | backfill completion proof, canary evaluation    |
-+--------------------------+-----------------------+-------------------------------------------------+
-```
+| Operational Dimension | Routine Deployment | Architectural Cutover (ADR-011 Mandate) |
+| :--- | :--- | :--- |
+| **Source Code Base** | Same repository; incremental Git diff | New repository; complete language rewrite; disparate architectural lineage |
+| **Persistence Engine** | Existing engine; additive migrations | Engine migration (e.g., Postgres $\to$ ClickHouse); destructive/re-keyed table schema changes |
+| **Inter-Process Transport** | Unchanged protocol and message schema | Protocol change (e.g., REST $\to$ NATS JetStream; synchronous RPC $\to$ event-driven queue) |
+| **Rollback Surface** | Trivial GitOps digest repointing ($< 30$s) | Complex multi-stage rollback runbook; persistent data forward-migration required |
+| **In-Flight State** | Preserved via graceful process termination | Invalidated unless an active state translation layer bridges legacy and modern engines |
+| **Governance Authority** | Delivery Closer | Sovereign Gatekeeper (ADR + Signed Cutover Plan) |
+| **Verification Method** | Runtime Health Probe (`/api/health`) | Shadow traffic parity, dual-read CRC audit, backfill completion proof, canary evaluation |
 
 ---
 
@@ -121,34 +83,12 @@ The pull request was presented to an operator for review. Seeing passing CI chec
 ### The Failure Cascade
 The moment the new containers initialized, the entire estate experienced an immediate, cascading collapse:
 
-```
-+---------------------------------------------------------------------------------------------------+
-|                              THE BIFROST CASCADING OUTAGE                                         |
-+---------------------------------------------------------------------------------------------------+
-|                                                                                                   |
-|  [ Routine PR Merged ]                                                                            |
-|           │                                                                                       |
-|           ▼                                                                                       |
-|  [ Argo CD Replaces Pods ]                                                                        |
-|           │                                                                                       |
-|           ├───────────────────────────────────┬───────────────────────────────────┐               |
-|           ▼                                   ▼                                   ▼               |
-|  1. Flight-State Severance         2. Datastore Orphaning              3. Transport Disconnect    |
-|     Active agent workers              New schema rejected legacy          Dozens of daemon pods   |
-|     holding open HTTP tool-calls      relational foreign keys.            attempting REST calls   |
-|     terminated with 502 Bad Gateway.  Thousands of active execution       received connection     |
-|     Slices hung in zombie state.      records abandoned as ghosts.        refused (NATS required).|
-|           │                                   │                                   │               |
-|           └───────────────────────────────────┼───────────────────────────────────┘               |
-|                                               ▼                                                   |
-|                                    4. Rollback Double-Fault                                       |
-|                                       Reverting container image failed:                           |
-|                                       New service had run unversioned DDL                         |
-|                                       migrations, rendering Postgres db                           |
-|                                       incompatible with legacy code!                              |
-|                                                                                                   |
-+---------------------------------------------------------------------------------------------------+
-```
+| Cascade Vector | Physical Mechanism | Immediate Production Impact |
+| :--- | :--- | :--- |
+| **1. Flight-State Severance** | Gateway replaced mid-execution | 40+ active agent workers holding open HTTP tool calls terminated with 502 Bad Gateway; execution channels hung. |
+| **2. Datastore Orphaning** | New schema rejected legacy keys | Thousands of active operational records abandoned in Postgres without backfill or schema compatibility. |
+| **3. Transport Fracture** | REST swapped for NATS JetStream | Worker daemons attempting REST calls failed with connection refused; downstream services crashed. |
+| **4. Rollback Double-Fault** | New service ran unversioned DDL | Destructive DDL migrations dropped columns required by legacy container; rolling back image caused crash loops. |
 
 1. **Catastrophic Flight-State Severance:** Over forty autonomous agent sessions running across the fleet were actively executing multi-hour, stateful coding and deployment tasks. When the gateway was replaced, every active execution channel severed simultaneously. Workers waiting for tool execution responses received unexpected `502 Bad Gateway` errors or hung indefinitely waiting on sockets that were never serviced.
 2. **Permanent Data Orphaning:** The rewritten gateway initialized with a radically altered schema. Because no backfill migration had been planned or executed, the new service could not read historical session state, in-flight transaction locks, or execution traces. Thousands of active operational records were instantly orphaned in PostgreSQL, unlinked from the new document tables.
@@ -175,36 +115,12 @@ Under RROM, attempting to smuggle an architectural cutover under the guise of an
 
 When an engineering initiative meets the criteria of an architectural cutover, the autonomous *Merge-Then-Deploy* pipeline is locked. The initiative must navigate four mandatory operational pillars before legacy traffic can be severed.
 
-```
-+---------------------------------------------------------------------------------------------------+
-|                                THE FOUR PILLARS OF CUTOVER GOVERNANCE                             |
-+---------------------------------------------------------------------------------------------------+
-|                                                                                                   |
-|    +-----------------------------+               +-----------------------------+                  |
-|    |          PILLAR I           |               |          PILLAR II          |                  |
-|    |  ARCHITECTURAL DECISION     | ────────────> |    EXPAND-AND-CONTRACT      |                  |
-|    |         RECORD (ADR)        |               |      MIGRATION PATTERN      |                  |
-|    |                             |               |                             |                  |
-|    |  - Formal Schema & Context  |               |  - Phase 1: Dual-Write      |                  |
-|    |  - Evaluated Alternatives   |               |  - Phase 2: Backfill Audit  |                  |
-|    |  - Blast Radius Bounds      |               |  - Phase 3: Cutover Reads   |                  |
-|    |  - Rollback Trigger Criteria|               |  - Phase 4: Contract Schema |                  |
-|    +-----------------------------+               +-----------------------------+                  |
-|                                                                 │                                 |
-|                                                                 ▼                                 |
-|    +-----------------------------+               +-----------------------------+                  |
-|    |          PILLAR IV          |               |         PILLAR III          |                  |
-|    |    LOUD DECOMMISSIONING     | <──────────── |     SHADOW TRAFFIC AND      |                  |
-|    |          PROTOCOL           |               |      CANARY VALIDATION      |                  |
-|    |                             |               |                             |                  |
-|    |  - Ingress Route Teardown   |               |  - Proxy-Level Mirroring    |                  |
-|    |  - Cold Datastore Snapshots |               |  - Parity Assertion Engines |                  |
-|    |  - Identity/Secret Revoke   |               |  - Staged Traffic Canary    |                  |
-|    |  - GitOps Repository Purge  |               |  - Automated Circuit Breaker|                  |
-|    +-----------------------------+               +-----------------------------+                  |
-|                                                                                                   |
-+---------------------------------------------------------------------------------------------------+
-```
+| Pillar | Governance Mandate | Core Operational Deliverables |
+| :--- | :--- | :--- |
+| **I. Architectural Decision Record (ADR)** | Pre-Implementation Contract | Formal context, evaluated alternatives, blast radius bounds, explicit rollback triggers. |
+| **II. Expand-and-Contract Migration** | State Preservation | Phase 1 Dual-Write $\to$ Phase 2 Backfill & Parity audit $\to$ Phase 3 Cutover Reads $\to$ Phase 4 Contract. |
+| **III. Shadow Traffic & Canary Validation** | Runtime Proof | Ingress-level request mirroring, payload diff assertion engine, staged canary traffic progression. |
+| **IV. Loud Decommissioning Protocol** | Anti-Zombie Architecture | Ingress route teardown, cold cryptographic snapshots, credential revocation, manifest purge. |
 
 ---
 
@@ -259,36 +175,12 @@ The ADR must be reviewed and formally signed off by the **Sovereign Gatekeeper**
 
 Direct datastore, schema, and messaging cutovers executed via "big bang" deployments are prohibited across all RROM tiers. All stateful architectural transformations must follow the four-phase **Expand-and-Contract Pattern** (also known as the Parallel Run Pattern).
 
-```
-+----------------------------------------------------------------------------------------------------+
-|                       EXPAND-AND-CONTRACT MIGRATION LIFECYCLE                                      |
-+----------------------------------------------------------------------------------------------------+
-|                                                                                                    |
-|  PHASE 1: DUAL WRITE (EXPAND)                                                                      |
-|  Client Traffic ──> [ Legacy Service ] ─── Read/Write ───> [ Legacy Database ]                    |
-|                            │                                                                       |
-|                            └── Async Write (Fault-Tolerant) ──> [ Modern Database ]                |
-|                                                                                                    |
-|  PHASE 2: BACKFILL & PARITY AUDIT                                                                  |
-|  Client Traffic ──> [ Legacy Service ] ─── Read/Write ───> [ Legacy Database ]                    |
-|                                                                    │                               |
-|                     [ Offline Backfill Daemon ] <──────────────────┘                               |
-|                                │ (Migrate Historical Records)                                      |
-|                                ▼                                                                   |
-|                     [ Modern Database ] <── Parity Engine ──> [ Legacy Database ]                  |
-|                                                                                                    |
-|  PHASE 3: CUTOVER READS (CONTRACT BEGINS)                                                          |
-|  Client Traffic ──> [ Modern Service ] ─── Read/Write ───> [ Modern Database ]                    |
-|                            │                                                                       |
-|                            └── Async Write (Safety Buffer) ──> [ Legacy Database ]                 |
-|                                                                                                    |
-|  PHASE 4: DECOMMISSION (FINAL CONTRACT)                                                            |
-|  Client Traffic ──> [ Modern Service ] ─── Read/Write ───> [ Modern Database ]                    |
-|                                                                                                    |
-|                     [ Legacy Database: COLD SNAPSHOT -> DESTROYED ]                                |
-|                                                                                                    |
-+----------------------------------------------------------------------------------------------------+
-```
+| Migration Phase | Traffic Routing & State Invariant | Exit Gate & Verification |
+| :--- | :--- | :--- |
+| **Phase 1: Dual-Write (Expand)** | Reads $\to$ Legacy store exclusively; Writes $\to$ Legacy + async fault-isolated write to Modern store. | Modern store ingests live peak write load with zero latency impact or data loss. |
+| **Phase 2: Backfill & Parity Audit** | Offline daemon backfills historical records; `audit-parity-stream` executes cryptographic CRC checks. | 100% historical records reconciled; zero hash divergence across 24h observation window. |
+| **Phase 3: Cutover Reads (Contract Begins)** | Reads $\to$ Modern store; Mutations maintain reverse dual-write safety net to legacy store. | Modern service handles 100% live traffic; reverse buffer preserves instant rollback safety. |
+| **Phase 4: Decommission (Final Contract)** | Reverse writes terminated; legacy schema translation layers purged from codebase in dedicated PR. | Legacy databases snapshotted to cold storage; legacy containers permanently de-provisioned. |
 
 #### Phase 1: Dual-Write / Expand
 The application is modified to write incoming mutations to both the legacy datastore and the new datastore concurrently.
@@ -319,35 +211,11 @@ With the modern architecture verified under peak production load, the contract p
 
 Shifting traffic to an architectural replacement must never occur on blind faith. Modern ingress proxies allow operators to validate performance, response parity, and error budgets using real, unsimulated production workloads.
 
-```
-+---------------------------------------------------------------------------------------------------+
-|                              SHADOW TRAFFIC PARITY ARCHITECTURE                                   |
-+---------------------------------------------------------------------------------------------------+
-|                                                                                                   |
-|                                  [ Production Ingress Proxy ]                                     |
-|                                  (Traefik / Envoy / Nginx)                                        |
-|                                              │                                                    |
-|                      ┌───────────────────────┴───────────────────────┐                            |
-|                      │ (Primary Live Route: 100%)                    │ (Mirror Traffic: 100%)     |
-|                      ▼                                               ▼                            |
-|           +---------------------+                         +---------------------+                 |
-|           |   LEGACY SERVICE    |                         |   MODERN SERVICE    |                 |
-|           |   (Active Master)   |                         |   (Shadow Mode)     |                 |
-|           +---------------------+                         +---------------------+                 |
-|                      │                                               │                            |
-|                      │ Return 200 OK                                 │ Return 200 OK              |
-|                      │ + Payload A                                   │ + Payload B                |
-|                      │                                               │                            |
-|                      ├───────────────────────┐       ┌───────────────┤                            |
-|                      ▼                       ▼       ▼               ▼                            |
-|               [ Live Client ]             [ Parity Comparator Engine ]                            |
-|                                           - Status Code Matching (200 == 200)                     |
-|                                           - Schema/Payload Diff (JSON/Protobuf)                   |
-|                                           - Latency Comparison (p50/p95/p99)                      |
-|                                           - Drop Responses (Fire & Forget)                        |
-|                                                                                                   |
-+---------------------------------------------------------------------------------------------------+
-```
+| Component | Traffic Flow | Verification & Isolation Mandate |
+| :--- | :--- | :--- |
+| **Production Ingress** | Duplicates incoming requests (100% Live + 100% Mirror). | Live client request routes to Legacy; duplicate routes asynchronously to Modern. |
+| **Modern Service (Shadow)** | Processes full production request payload. | Output response intercepted and routed to Comparator Engine; never returned to client. |
+| **Parity Comparator** | Evaluates Legacy vs. Modern response pairs. | Status code parity, payload schema equality, latency distribution ($\Delta t \le 0$). |
 
 #### 1. Ingress Shadow Mirroring
 Ingress proxies (such as Traefik or Envoy) are configured with traffic mirroring rules. The proxy duplicates incoming HTTP/gRPC requests, routing the live request to the legacy service and an identical clone of the request to the shadow service.
@@ -365,17 +233,13 @@ To detect semantic divergence between the legacy and modern systems, responses a
 #### 3. Staged Canary Traffic Shift
 Following successful shadow validation, live traffic is redirected using a stepped canary progression governed by strict observation windows:
 
-```
-+--------------------------------------------------------------------------------------------------+
-| Stage    | Traffic Split (Modern / Legacy) | Minimum Soak Time | Abort Criteria                  |
-+----------+---------------------------------+-------------------+---------------------------------+
-| Stage 0  | 0% Live (100% Shadow Mirror)    | 24 Hours          | Any unhandled panic or 5xx diff |
-| Stage 1  | 1% Live Canary / 99% Legacy     | 4 Hours           | 5xx Error Rate > 0.01%          |
-| Stage 2  | 10% Live Canary / 90% Legacy    | 8 Hours           | p99 Latency Regression > 10%    |
-| Stage 3  | 50% Live / 50% Legacy           | 12 Hours          | Datastore connection exhaustion |
-| Stage 4  | 100% Modern / 0% Legacy         | 48 Hours (Soak)   | Any unhandled invariant breach  |
-+--------------------------------------------------------------------------------------------------+
-```
+| Stage | Traffic Split (Modern / Legacy) | Minimum Soak Time | Abort Criteria |
+| :--- | :--- | :--- | :--- |
+| **Stage 0** | 0% Live (100% Shadow Mirror) | 24 Hours | Any unhandled panic or 5xx response difference |
+| **Stage 1** | 1% Live Canary / 99% Legacy | 4 Hours | 5xx Error Rate $> 0.01\%$ |
+| **Stage 2** | 10% Live Canary / 90% Legacy | 8 Hours | p99 Latency Regression $> 10\%$ |
+| **Stage 3** | 50% Live / 50% Legacy | 12 Hours | Datastore connection pool exhaustion |
+| **Stage 4** | 100% Modern / 0% Legacy | 48 Hours (Soak) | Any unhandled invariant breach |
 
 If an error budget is breached during any canary stage, the ingress proxy's automated circuit breaker immediately collapses the split back to 0% modern, dropping all traffic onto the legacy safety net.
 
@@ -389,29 +253,12 @@ Zombie architecture is an operational and security disaster. It invites split-br
 
 RROM mandates a formal **Loud Decommissioning Protocol**. Once the modern system completes its Stage 4 soak window, the operator executes four definitive retirement steps:
 
-```
-+---------------------------------------------------------------------------------------------------+
-|                                 LOUD DECOMMISSIONING PROTOCOL                                     |
-+---------------------------------------------------------------------------------------------------+
-|                                                                                                   |
-|    STEP 1: INGRESS & ROUTE TEARDOWN                                                               |
-|    Remove DNS CNAMEs, Traefik IngressRoutes, service mesh endpoints.                              |
-|    Verify zero ingress packets hit the legacy service via edge logs.                              |
-|                                                                                                   |
-|    STEP 2: FINAL COLD SNAPSHOT & CRYPTOGRAPHIC ARCHIVAL                                           |
-|    Take a point-in-time snapshot of legacy databases and disk volumes.                            |
-|    Hash with SHA-256, record digest in asset catalog, move snapshot to cold storage.             |
-|                                                                                                   |
-|    STEP 3: CREDENTIAL REVOCATION & ACCESS PURGE                                                   |
-|    Revoke Vault/OpenBao AppRoles, delete database roles, rotate shared secrets,                   |
-|    and invalidate service account tokens bound to legacy workloads.                               |
-|                                                                                                   |
-|    STEP 4: GITOPS REPOSITORY & MANIFEST RETIREMENT                                                |
-|    Submit a formal Decommission PR removing legacy Helm values, K8s manifests,                   |
-|    and CI pipelines. Mark the legacy source code repository as Read-Only / Archived.             |
-|                                                                                                   |
-+---------------------------------------------------------------------------------------------------+
-```
+| Decommission Step | Target System | Action & Verification |
+| :--- | :--- | :--- |
+| **Step 1: Route Teardown** | Ingress Proxies & DNS | Remove Traefik `IngressRoute` CRDs, CNAMEs; verify zero edge access hits in logs. |
+| **Step 2: Cold Snapshot & Hash** | Databases & Persistent Volumes | Final consistent dump; compute SHA-256 hash; store in immutable cold object vault. |
+| **Step 3: Credential Revocation** | OpenBao Vault & Keycloak | Revoke AppRoles, drop database user accounts, invalidate service tokens. |
+| **Step 4: GitOps Retirement** | GitOps Repositories | Purge manifests via formal Decommission PR; archive legacy repository as Read-Only. |
 
 #### Step 1: Ingress Route Teardown
 All virtual routes, ingress manifests, Traefik `IngressRoute` CRDs, and DNS records pointing to the legacy pods are purged. Edge access logs must be queried for a minimum of two hours to confirm that zero inbound requests are arriving on legacy endpoints.

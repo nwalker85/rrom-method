@@ -32,34 +32,7 @@ The Core Axiom eliminates this vulnerability by decoupling the delivery lifecycl
 
 The delivery lifecycle under RROM operates as a unidirectional state progression governed by rigid cryptographic and procedural gates:
 
-```text
-+---------------------------------------------------------------------------------------+
-| 1. THE BUILD (THE UNIT)                                                               |
-| Ingress Event: Merge to canonical trunk (main)                                        |
-| Compilation:   Deterministic compilation, testing, and container packaging            |
-| Canonical ID:  Monotonic Sequence (:b<N>) + Commit Link (:sha-<sha12>)                |
-| Physical Truth: OCI Content Digest (@sha256:7f9a...3c)                                |
-| Destination:   Internal Artifact Registry (Harbor) + Staging Stream (:uat)            |
-+---------------------------------------------------------------------------------------+
-                                           │
-                                           ▼ (Zero Rebuilds / Reference Retagging)
-+---------------------------------------------------------------------------------------+
-| 2. THE RELEASE (THE NAME)                                                             |
-| Ingress Event: Release PR + Operator Authorization + Annotated Git Tag                |
-| Operation:     Registry v2 Manifest API retags existing digest to :vX.Y.Z              |
-| Metadata Lock: values.yaml, Chart.yaml, CHANGELOG.md pinned to :b<N> and digest       |
-| Enforced Gate: check-release-source-parity.sh asserts ZERO application source drift   |
-+---------------------------------------------------------------------------------------+
-                                           │
-                                           ▼ (Declarative Pull / Convergence Loop)
-+---------------------------------------------------------------------------------------+
-| 3. THE DEPLOYMENT (RECONCILIATION)                                                    |
-| Ingress Event: Declarative GitOps Repository PR / Manifest Synchronization            |
-| Engine:        GitOps Controller (Argo CD) observes desired state vs. live state      |
-| Convergence:   Kubelet pulls pinned digest (@sha256:7f9a...3c) from Registry          |
-| Proof Gate:    Runtime health probes verify live network endpoints (RP-13)            |
-+---------------------------------------------------------------------------------------+
-```
+![Diagram 1: The Core Axiom Lifecycle](diagram1-core-axiom)
 
 ---
 
@@ -224,18 +197,11 @@ This convention is profoundly flawed. It creates an invisible, unmonitored tempo
 
 Consider the timeline of a typical "Build on Tag" deployment:
 
-```text
-  T₀: Merge to main                T₁: Tag Pushed (v1.0.0)             T_incident: Outage
-───────●─────────────────────────────────────●─────────────────────────────────●────────► Time
-       │                                     │                                 │
-       ▼                                     ▼                                 ▼
-   Ingress Event                         Release Event                 Production Failure
-   • Code committed to main              • Operator pushes tag         • Upstream glibc ABI drift
-   • Staging builds & passes             • Fresh runner spins up       • Transitive dependency bug
-   • Digest: sha256:AAA...               • CI builds from scratch      • CrashLoopBackOff on node
-   • Tested in Staging QA                • Digest: sha256:BBB...       • Rollback attempts rebuild!
-                                         (NEVER TESTED IN STAGING)
-```
+| Phase | Timing Coordinate | Physical Pipeline State |
+| :--- | :--- | :--- |
+| **Ingress Event** | $T_0$ (Merge to `main`) | Commit landed; staging compiles and deploys digest `sha256:AAA...`. Tests pass 100%. |
+| **Release Event** | $T_1$ ($T_0 + \Delta t$, 5 days later) | Operator tags `v1.0.0`. Runner recompiles from scratch; pushes unverified digest `sha256:BBB...`. |
+| **Production Failure** | $T_{\text{incident}}$ ($T_1 + 10\text{m}$) | Upstream mirror drift causes crash loop. Rollback attempts recompile and fails. |
 
 At timestamp $T_0$, an engineer merges a feature branch to `main`. Automated tests run, a container is built, and it is deployed to a staging environment. The team spends five days validating the software in staging. The artifact behaves flawlessly.
 
@@ -253,18 +219,11 @@ The code was identical. The **artifact** was not.
 
 During the temporal gap $\Delta t$ between $T_0$ and $T_1$, the ambient universe outside the Git repository shifted across three distinct vectors:
 
-```text
-                                  TEMPORAL GAP (Δt)
-         ┌─────────────────────────────────────────────────────────────────┐
-         │                                                                 │
-         ▼                                                                 ▼
-[ 1. Base Image Drift ]            [ 2. Dependency Skew ]         [ 3. Ambient Toolchain Drift ]
-Parent Dockerfile specifies:       A transitive sub-dependency    The CI host updated its OS,
-  FROM alpine:3.19                   specified as `^1.2.0`          installed a newer buildx,
-Upstream mirror published a        published a patch release      or altered libc link paths,
-point-release package update       containing a memory leak       silently breaking the ABI.
-between T₀ and T₁.                 three hours before T₁.
-```
+| Divergence Vector | Mechanism during Temporal Gap ($\Delta t$) | Operational Consequence |
+| :--- | :--- | :--- |
+| **1. Base Image Drift** | Parent Dockerfile specifies mutable tag (e.g. `alpine:3.19`). Upstream registry updates base layers. | Linker paths, glibc allocators, or TLS roots silently change. |
+| **2. Dependency Skew** | Transitive dependency published patch release between $T_0$ and $T_1$. | Unpinned build scripts or post-installs pull untested code. |
+| **3. Ambient Toolchain Drift** | CI host updated OS, container runtime, or Go/Rust compiler. | ABI mismatch or cgroup accounting changes break runtime. |
 
 1. **Base Image Drift:** The application's `Dockerfile` specifies `FROM alpine:3.19` or `FROM node:20-bookworm-slim`. Even though the tag string did not change, the upstream Docker Hub registry published a patch-level update to that tag between $T_0$ and $T_1$ to address a CVE. When the tag build ran at $T_1$, it pulled the newer base image. That base image introduced a subtle change in dynamic linker paths or OpenSSL default cipher suites, causing the application to fail during client TLS handshakes in production.
 2. **Dependency Skew:** Modern package managers (npm, pip, cargo, go) rely on dependency trees containing hundreds or thousands of transitive dependencies. Even with lockfiles (`package-lock.json`, `Cargo.lock`), ambient build scripts frequently execute post-install hooks, download dynamic pre-compiled binaries (e.g., node-gyp native addons), or resolve unpinned system utilities via `apt-get update && apt-get install -y curl`. An unannounced patch release in a transitive dependency published three hours before $T_1$ silently entered the production binary.

@@ -88,36 +88,13 @@ When CI builds on tag, the release pipeline mints a brand-new container digest. 
 
 To understand how these physical failures manifest in practice, examine the step-by-step chronology of an actual production outage caused by the rebuild-on-deploy anti-pattern:
 
-```
-+---------------------------------------------------------------------------------------------------+
-|                                 THE REBUILD-ON-DEPLOY OUTAGE TIMELINE                             |
-+---------------------------------------------------------------------------------------------------+
-|                                                                                                   |
-|  14:00 ─── PR #412 Merged to main                                                                 |
-|            CI compiles Build :b184. Staging deploys :b184 (libssl3: 3.0.11-1~deb12u1).           |
-|            Staging traffic passes 100% of integration checks. System healthy.                     |
-|                                                                                                   |
-|  15:45 ─── UPSTREAM EVENT (External to organization)                                              |
-|            Debian security mirrors release libssl3 security update: 3.0.11-1~deb12u2.             |
-|            Default socket buffer exhaustion handling is subtly altered.                           |
-|                                                                                                   |
-|  16:30 ─── Operator pushes release tag v2.8.0.                                                    |
-|            Conventional release pipeline runs 'docker build' from scratch.                        |
-|            Release runner downloads new deb12u2 package.                                          |
-|            Freshly compiled image pushed to registry with UNTESTED digest: @sha256:9c8e...        |
-|                                                                                                   |
-|  16:42 ─── Production reconciles to v2.8.0.                                                        |
-|            High-throughput TLS connection pool encounters socket buffer regression.               |
-|            Cascading 502 Bad Gateway errors across entire ingress plane.                          |
-|                                                                                                   |
-|  16:55 ─── THE ROLLBACK ILLUSION FAILS                                                            |
-|            Lead tries to rollback by triggering deploy workflow for tag v2.7.9.                   |
-|            Release runner checks out v2.7.9 and attempts clean rebuild.                           |
-|            An external dependency mirror is temporarily unreachable (HTTP 503).                   |
-|            Rollback build crashes with exit code 1. Production remains hard-down.                 |
-|                                                                                                   |
-+---------------------------------------------------------------------------------------------------+
-```
+| Time | Phase | Physical Event & Runtime Consequence |
+| :--- | :--- | :--- |
+| **14:00** | **Ingress & Staging** | PR #412 merged to `main`. CI compiles Build `:b184`. Staging deploys `:b184` (`libssl3: 3.0.11-1~deb12u1`). 100% synthetic integration checks pass. |
+| **15:45** | **Upstream Shift** | External upstream security update released: `libssl3` increments to `3.0.11-1~deb12u2`. Socket buffer exhaustion logic subtly altered. |
+| **16:30** | **Release Tag** | Operator tags `v2.8.0`. Release pipeline checks out code and executes fresh `docker build`. Runner pulls untested `deb12u2` package and pushes image `@sha256:9c8e...`. |
+| **16:42** | **Production Outage** | Production reconciles to `v2.8.0`. Under concurrent socket load, workers stall on TCP write flushes. HTTP 502 Bad Gateway cascades across ingress. |
+| **16:55** | **Rollback Failure** | Lead triggers deploy workflow for yesterday's tag `v2.7.9`. Pipeline attempts clean rebuild; external dependency CDN returns HTTP 503. Rollback build fails. Production remains dark. |
 
 ### Phase 1: Ingress & Verification in Staging (14:00 - 15:30)
 An engineering team working on an internal financial transaction engine merges PR #412 into `main`. The CI daemon compiles the code once, labeling the build `:b184`. The resulting container image is assigned a unique digest (`sha256:4a1b...`). 
@@ -154,17 +131,11 @@ The engineering team is now blind and paralyzed: they cannot roll forward becaus
 
 The release crisis is not confined to server-side container builds. As software architectures have diversified into distributed platforms, modern software estates suffer from what RROM defines as the **Triple Divergence**: three distinct categories of drift that quietly decouple developer intent from production reality.
 
-```
-                                  THE TRIPLE DIVERGENCE
-                                            │
-         ┌──────────────────────────────────┼──────────────────────────────────┐
-         ▼                                  ▼                                  ▼
- 1. ENVIRONMENTAL DRIFT             2. SURFACE DRIFT                   3. THE CUTOVER TRAP
- Staging vs. Production Bits        Server API vs. Workstation CLI     Routine Deploy vs. Cutover
- Rebuilding introduces ambient      Backend updates protobuf schema;   Team swaps database engine
- drift, unpinned libraries, and     local developer CLI falls behind,  under standard release PR,
- unverified binary twins.           silently corrupting cluster state. bypassing ADRs and elevation.
-```
+| Drift Category | Physical Boundary | Operational Pathology |
+| :--- | :--- | :--- |
+| **1. Environmental Drift** | Staging Bits vs. Production Bits | Rebuilding on tag introduces unpinned dynamic C-libraries, non-deterministic tar layer ordering, and unverified binary twins into production. |
+| **2. Surface Drift** | Server APIs vs. Workstation CLIs | Backend updates schemas; workstation tools fall behind, silently parsing payloads incorrectly or corrupting cluster state. |
+| **3. The Cutover Trap** | Routine Deploy vs. Architectural Cutover | Swapping datastores, brokers, or auth providers under a standard release PR bypasses ADRs, data migration, and elevation gates. |
 
 ### 1. Environmental Drift (Staging vs. Production)
 Environmental drift is the physical delta between what was tested and what was shipped. It occurs whenever the path from staging to production involves recompilation, re-bundling, or re-resolution of external dependencies. 
@@ -201,22 +172,11 @@ Under RROM, **cutovers require Architectural Decision Records (ADRs), explicit m
 
 The Ravenhelm Release Operations Methodology is not an abstract academic exercise. It is an installable, sovereign operating discipline authored specifically for three foundational engineering roles:
 
-```
-+---------------------------------------------------------------------------------------------------+
-|                                 THE CANONICAL RROM TEAM PROFILE                                   |
-+---------------------------------------------------------------------------------------------------+
-|                                                                                                   |
-|  +-------------------------+   +-------------------------+   +-------------------------+          |
-|  |   THE TECHNICAL LEAD    |   |  THE PLATFORM ENGINEER  |   |    AUTONOMOUS AGENTS    |          |
-|  |      / OPERATOR         |   |      / CUSTODIAN        |   |      / AUTHORS          |          |
-|  |                         |   |                         |   |                         |          |
-|  | - Holds Merge Seat      |   | - Owns Registry & Rails |   | - High-Velocity PRs     |          |
-|  | - Enforces Parity (RP-5)|   | - Enforces Zero Drift   |   | - Isolated Worktrees    |          |
-|  | - Verifies Runtime Proof|   | - GitOps Orchestration  |   | - Bounded Authority     |          |
-|  +-------------------------+   +-------------------------+   +-------------------------+          |
-|                                                                                                   |
-+---------------------------------------------------------------------------------------------------+
-```
+| Operator Role | Primary Accountability | Core Release Responsibilities |
+| :--- | :--- | :--- |
+| **Technical Lead & Operator** | Production Uptime & Release Authority | Holds sovereign merge seat; executes Merge-Then-Deploy (RP-10); validates runtime proofs before sign-off. |
+| **Platform Engineer & Custodian** | Registry & Multi-Surface Rails | Enforces single-build rule (RP-3); maintains Harbor OCI topology, Argo CD sync loops, and Homebrew tap inreplace formulae. |
+| **Autonomous Coding Agents** | Authoring within Worktree Boundaries | Confined to disposable git worktrees; author PRs; structurally barred from tagging releases or mutating production manifests. |
 
 ### 1. The Technical Lead and Fleet Operator
 The individual who bears ultimate accountability for the stability, security, and uptime of production systems. The Lead cannot accept "it worked in staging" or "CI was green" as an explanation for downtime. 

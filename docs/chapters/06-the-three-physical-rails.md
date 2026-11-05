@@ -12,39 +12,7 @@ Modern enterprise and sovereign engineering topologies rarely conform to this si
 2. **Developer Workstation Tooling:** Native command-line interfaces (CLIs), Ratatui-based terminal user interfaces (TUIs), and diagnostics executed locally on operator laptops (macOS and Linux).
 3. **Client Desktop Applications:** Standalone graphical user interface (GUI) client shells (built with frameworks such as Tauri v2, Svelte, and Rust) installed on end-user workstations.
 
-```
-+--------------------------------------------------------------------------------------------------+
-|                           THE THREE PHYSICAL RELEASE RAILS (RROM)                                |
-+--------------------------------------------------------------------------------------------------+
-|                                                                                                  |
-|   +------------------------------------------------------------------------------------------+   |
-|   |                       INGRESS SOURCE REPOSITORY (Forgejo / GitHub)                       |   |
-|   |         Merge to main triggers ingress CI build: produces immutable artifact :b<N>       |   |
-|   +------------------------------------------------------------------------------------------+   |
-|                                             │                                                    |
-|                   ┌─────────────────────────┼─────────────────────────┐                          |
-|                   │                         │                         │                          |
-|                   ▼                         ▼                         ▼                          |
-|   +──────────────────────────────+  +─────────────────────────+  +───────────────────────────+   |
-|   |            RAIL A            |  |         RAIL B          |  |          RAIL C           |   |
-|   |       Server / Cluster       |  |  Developer Workstation  |  |    Desktop Client OTA     |   |
-|   |       GitOps Delivery        |  |   Package Manager Tap   |  |   Cryptographic Signing   |   |
-|   +──────────────────────────────+  +─────────────────────────+  +───────────────────────────+   |
-|   | - OCI Image & Helm Chart     |  | - Sandboxed Source Build|  | - Pre-Compiled Bundle     |   |
-|   | - Harbor Registry Storage    |  | - macOS Homebrew Tap    |  | - Ed25519 Minisign Sig    |   |
-|   | - Argo CD Declarative Sync   |  | - Formula inreplace     |  | - latest.json Manifest    |   |
-|   | - K3s Multi-Node Cluster     |  | - Preserves Git Parity  |  | - In-App Background Swap  |   |
-|   | - Vitki Reference Spec       |  | - Ullr/Yager Reference  |  | - Idunn Reference Spec    |   |
-|   +──────────────────────────────+  +─────────────────────────+  +───────────────────────────+   |
-|                   │                         │                         │                          |
-|                   ▼                         ▼                         ▼                          |
-|   +──────────────────────────────+  +─────────────────────────+  +───────────────────────────+   |
-|   |    PRODUCTION ENVIRONMENT    |  |  OPERATOR WORKSTATIONS  |  |     END-USER DESKTOPS     |   |
-|   |     Cluster Pods Converged   |  |   Local CLI/TUI Live    |  |   Native GUI Shell Live   |   |
-|   +──────────────────────────────+  +─────────────────────────+  +───────────────────────────+   |
-|                                                                                                  |
-+--------------------------------------------------------------------------------------------------+
-```
+![Diagram 2: The Three Physical Rails](diagram2-three-rails)
 
 When these computing surfaces are treated with disjoint, ad-hoc release processes, severe operational drift occurs. Consider a common failure scenario: an infrastructure platform updates a core cluster backend with a new gRPC protobuf schema and modified state transition logic. If the backend is deployed immediately (Rail A) but the operator CLI distributed via Homebrew (Rail B) remains un-bumped on engineers' machines, operators running administrative commands will issue RPCs with outdated payload schemas or missing tenancy headers. At best, requests are rejected; at worst, the backend fails to validate an omitted field, silently truncating tables or corrupting multi-tenant databases.
 
@@ -58,35 +26,13 @@ The Ravenhelm Release Operations Methodology (RROM) codifies **The Three Physica
 
 Rail A governs server-side daemons, microservices, and cluster workloads deployed to Kubernetes environments. Its canonical production reference implementation is **Vitki** (`nate/vitki`), an orchestrator and platform backend deployed across high-availability K3s clusters.
 
-```
-+----------------------------------------------------------------------------------------------------+
-|                         RAIL A: SERVER & CLUSTER GITOPS TOPOLOGY                                   |
-+----------------------------------------------------------------------------------------------------+
-|                                                                                                    |
-|  [ Ingress Merge ] ──> .forgejo/workflows/build.yml                                                |
-|                                 │                                                                  |
-|                                 ▼                                                                  |
-|                  Harbor OCI Registry Storage                                                       |
-|                  ├─ :b<N> (Monotonic Build Sequence)                                               |
-|                  ├─ :sha-<commit12> (Immutable Git Linkage)                                        |
-|                  └─ :uat (Moving Staging Tag) ──> [ UAT Stream: NodePort 30109 ]                   |
-|                                                                                                    |
-|  [ Release Tag vX.Y.Z ] ──> .forgejo/workflows/release.yml                                         |
-|                                 │                                                                  |
-|                                 ├─ scripts/harbor-artifact.sh retag :b<N> -> vX.Y.Z (No Rebuild)   |
-|                                 │                                                                  |
-|                                 ▼                                                                  |
-|                  GitOps Repository (nate/norns-gitops)                                             |
-|                  └─ Pinned values.yaml: repository:tag@sha256:<digest>                             |
-|                                 │                                                                  |
-|                                 ▼ (Declarative Polling / Webhook)                                  |
-|                  Argo CD Control Plane (norns cluster)                                             |
-|                                 │                                                                  |
-|                                 ▼ (Reconciliation Wave & Health Check)                             |
-|                  K3s Production Cluster ──> [ Production Stream: NodePort 30108 ]                  |
-|                                                                                                    |
-+----------------------------------------------------------------------------------------------------+
-```
+| Delivery Stage | Artifact Target | Operational Mechanism |
+| :--- | :--- | :--- |
+| **1. Ingress Build** | Harbor OCI Registry | Merge to `main` builds container layers and Helm charts; stores `:b<N>`, `:sha-<commit12>`, and updates moving `:uat` tag. |
+| **2. Release Tagging** | Registry Manifest API | Release workflow assigns `:vX.Y.Z` to existing `:b<N>` digest via Registry v2 API; zero code recompilation. |
+| **3. Manifest Update** | GitOps Repo (`norns-gitops`) | Pinned image digest (`image:tag@sha256:...`) and chart version committed to `values.yaml`. |
+| **4. Reconciliation** | Argo CD Controller | Pulls GitOps repo; detects drift; drives progressive rolling deployment on K3s cluster. |
+| **5. Runtime Proof** | Active Network Endpoint | Verified via live health probes (`/api/health`, version checks) on active interface before sign-off. |
 
 ### 1. Topology: From Ingress Build to Production Pods
 
@@ -167,34 +113,13 @@ Rail B governs command-line utilities, Ratatui terminal user interfaces, and adm
 
 While server deployments enjoy the clean abstraction of container images, distributing compiled native binaries to developer laptops introduces an acute package management dilemma.
 
-```
-+----------------------------------------------------------------------------------------------------+
-|                         RAIL B: FORMULA INREPLACE BUILD ARCHITECTURE                               |
-+----------------------------------------------------------------------------------------------------+
-|                                                                                                    |
-|   APPLICATION GIT REPOSITORY (nate/yager)                                                          |
-|   ├─ Cargo.toml  (Pegged to development placeholder: version = "0.1.0")                            |
-|   ├─ Cargo.lock  (Pegged to development placeholder)                                               |
-|   └─ Tag v0.1.33 ──> Pushed to git remote (Zero Source Drift against build b112)                   |
-|                                                                                                    |
-|                                        │ Release Tarball Archive                                   |
-|                                        ▼                                                           |
-|   DEVELOPER WORKSTATION: `brew install yager`                                                      |
-|   │                                                                                                |
-|   ▼ Isolated Build Sandbox: `/private/tmp/homebrew-yager-build/`                                   |
-|     1. Downloads & verifies archive SHA-256                                                        |
-|     2. Extracts pristine source tree                                                               |
-|     3. Executes Dynamic Sandboxed inreplace (RP-7):                                                |
-|        - inreplace "Cargo.toml", /^version = .*/, "version = \"0.1.33\""                           |
-|        - inreplace "Cargo.lock", /name = "yager"\nversion = .../, "version = \"0.1.33\""           |
-|     4. Compiles binary via `cargo install *std_cargo_args`                                         |
-|     5. Moves binary to Homebrew Cellar (`/opt/homebrew/Cellar/yager/0.1.33/bin/yager`)             |
-|     6. Runs `brew test` to verify `yager --version` returns `0.1.33`                               |
-|                                                                                                    |
-|   RESULT: Git source history remains 100% clean; local workstation binary reflects exact SemVer!   |
-|                                                                                                    |
-+----------------------------------------------------------------------------------------------------+
-```
+| Inreplace Step | Execution Context | Mechanism & Invariant |
+| :--- | :--- | :--- |
+| **1. Source Archive** | Git Remote (`nate/yager`) | Source pegged to static dev placeholder (`0.1.0`); tagged commit introduces zero source code diffs. |
+| **2. Fetch & Verify** | Workstation Sandbox | Homebrew downloads release archive and verifies cryptographic SHA-256 against tap formula. |
+| **3. Sandboxed Inreplace** | `/private/tmp/brew-build/` | Formula invokes `inreplace` dynamically on `Cargo.toml` and `Cargo.lock` strictly inside the temp sandbox. |
+| **4. Native Compilation** | Local Rust Toolchain | `cargo install` compiles binary embedding injected SemVer; git working tree remains 100% untainted. |
+| **5. Runtime Verification** | Homebrew Cellar | Formula test block executes `brew test yager`, asserting `yager --version` matches release version. |
 
 ### 1. The Acute Dilemma: Compilation from Source vs. Parity Checks
 
@@ -314,36 +239,13 @@ Rail C governs client-facing graphical desktop applications running on macOS, Wi
 
 Unlike developer CLIs installed via package managers, desktop GUI applications are operated by end-users who do not have Rust toolchains or developer runtimes installed. Desktop delivery mandates pre-compiled, self-contained binary bundles distributed via cryptographically authenticated Over-the-Air (OTA) updates.
 
-```
-+----------------------------------------------------------------------------------------------------+
-|                         RAIL C: DESKTOP CLIENT OTA ARCHITECTURE                                    |
-+----------------------------------------------------------------------------------------------------+
-|                                                                                                    |
-|  INGRESS CI BUILD (:b<N>)                                                                          |
-|  └─ Compiles native desktop bundles (.app.tar.gz, .dmg, .msi)                                      |
-|                                                                                                    |
-|  RELEASE PIPELINE (Tag vX.Y.Z)                                                                     |
-|  ├─ 1. Retrieves pre-built bundle from build b<N>                                                  |
-|  ├─ 2. Cryptographic Signing (RP-8):                                                               |
-|  │     minisign -Sm Idunn.app.tar.gz -s ~/.minisign/idunn.key                                      |
-|  │     Produces: Idunn.app.tar.gz.minisig (Ed25519 Signature)                                      |
-|  ├─ 3. Generates Manifest: latest.json                                                             |
-|  └─ 4. Attaches signed assets & latest.json to GitHub/Forgejo Release                               |
-|                                                                                                    |
-|                                        │ HTTPS Download                                            |
-|                                        ▼                                                           |
-|  IDUNN DESKTOP APP (Running on Operator Workstation)                                               |
-|  ├─ 1. Background Polling: Queries https://releases.ravenhelm.dev/idunn/latest.json                 |
-|  ├─ 2. Manifest Validation: Checks if version > currentVersion                                     |
-|  ├─ 3. Cryptographic Verification:                                                                 |
-|  │     - Downloads bundle payload to staging cache                                                 |
-|  │     - Verifies Ed25519 signature against embedded hardcoded public key                          |
-|  │     - Fail-Closed: If signature does NOT match, payload is wiped immediately                    |
-|  ├─ 4. Atomic In-Place Swap: Unlinks old app, renames new app bundle into place                    |
-|  └─ 5. Operator Prompt: "Idunn v1.4.2 is ready. Restart to apply update."                          |
-|                                                                                                    |
-+----------------------------------------------------------------------------------------------------+
-```
+| OTA Pipeline Phase | Executor | Cryptographic & Runtime Contract |
+| :--- | :--- | :--- |
+| **1. Ingress Packaging** | Ingress CI (`:b<N>`) | Compiles native pre-built bundles (`.app.tar.gz`, `.dmg`, `.msi`) across target architectures. |
+| **2. Release Signing** | Release Pipeline | Signs binary bundle using Minisign Ed25519 hardware key (`minisign -Sm`); produces detached `.minisig`. |
+| **3. Manifest Attachment** | Code Host Release API | Generates `latest.json` containing version, download URL, SHA-256 hash, and Minisign signature. |
+| **4. Client Verification** | Desktop Runtime (Idunn) | Background daemon checks `latest.json`; verifies Ed25519 signature against hardcoded public key before staging. |
+| **5. Atomic Swap** | Desktop OS Shell | Replaces binary atomically on exit/restart; invalid or corrupt signatures fail closed with zero execution. |
 
 ### 1. Pre-Compiled Packaging
 
@@ -427,31 +329,10 @@ When a project encompasses both a server backend (Rail A) and an administrative 
 
 Consider what occurs when a dual-surface platform allows its release rails to drift apart:
 
-```
-+----------------------------------------------------------------------------------------------------+
-|                         THE CATASTROPHIC SURFACE DESYNCHRONIZATION                                 |
-+----------------------------------------------------------------------------------------------------+
-|                                                                                                    |
-|   SCENARIO 1: BACKEND ADVANCES, CLI LAGS BEHIND                                                   |
-|   ----------------------------------------------------------------------------------------------   |
-|   Cluster Backend Deployed (v1.5.0)       │ Operator Workstation CLI Running (v1.4.8)              |
-|   - Introduces multi-tenant schema v2     │ - Sends legacy v1 payload missing tenant_id header     |
-|   - Rejects unauthenticated RPC callers   │ - Expects legacy unauthenticated handshake             |
-|                                           │                                                        |
-|   FAILURE: Operator CLI commands fail with gRPC InvalidArgument or silently corrupt records!       |
-|                                                                                                    |
-|   ----------------------------------------------------------------------------------------------   |
-|                                                                                                    |
-|   SCENARIO 2: CLI ADVANCES, BACKEND LAGS BEHIND                                                   |
-|   ----------------------------------------------------------------------------------------------   |
-|   Cluster Backend Running (v1.4.8)        │ Operator Workstation CLI Upgraded (v1.5.0)             |
-|   - API lacks new /v2/diagnostics route   │ - Issues requests to /v2/diagnostics                   |
-|   - Lacks database indexes for new query  │ - Assumes server supports parallel streaming queries   |
-|                                           │                                                        |
-|   FAILURE: Operators cannot run routine diagnostic checks during live incident response!           |
-|                                                                                                    |
-+----------------------------------------------------------------------------------------------------+
-```
+| Desynchronization Scenario | Surface State | Operational Failure Mode |
+| :--- | :--- | :--- |
+| **Scenario 1: Backend Advances, CLI Lags** | Backend at `v1.5.0` (new protobuf schema); Operator CLI at `v1.4.8`. | Legacy CLI sends outdated payloads missing required tenancy headers; backend rejects calls or silently truncates unparsed fields. |
+| **Scenario 2: CLI Advances, Backend Lags** | Operator CLI upgraded to `v1.5.0`; Cluster backend running `v1.4.8`. | CLI invokes new routes (e.g. `/v2/diagnostics`) returning HTTP 404 / gRPC `Unimplemented`; incident response tools blinded during Sev-1 outages. |
 
 ### 2. The Lockstep Rule (RP-6)
 

@@ -13,32 +13,12 @@ Engineering organizations frequently stumble into one of two operational traps:
 
 RROM solves this dichotomy through a progressive, value-driven adoption ladder. Each tier addresses concrete operational pain points, introduces specific technical capabilities, establishes rigorous governance gates, and unlocks unambiguous reliability guarantees.
 
-```text
-+---------------------------------------------------------------------------------------------------+
-| THE RROM MATURITY LADDER                                                                          |
-+---------------------------------------------------------------------------------------------------+
-| [ TIER 1: ARTIFACT DISCIPLINE ]                                                                   |
-| Build once on merge to main · Sequential build numbers (:b<N>) · Zero tag-time compilation        |
-+---------------------------------------------------------------------------------------------------+
-                                                  │
-                                                  ▼
-+---------------------------------------------------------------------------------------------------+
-| [ TIER 2: REGISTRY & DIGEST LOCKING ]                                                             |
-| Triple-tagging scheme · Mandatory @sha256: digest pinning · Automated source-parity gates        |
-+---------------------------------------------------------------------------------------------------+
-                                                  │
-                                                  ▼
-+---------------------------------------------------------------------------------------------------+
-| [ TIER 3: MULTI-RAIL DECLARATIVE GITOPS ]                                                         |
-| Sole-authority GitOps (Argo CD) · Rail A/B synchronization · Sandboxed formula inreplace         |
-+---------------------------------------------------------------------------------------------------+
-                                                  │
-                                                  ▼
-+---------------------------------------------------------------------------------------------------+
-| [ TIER 4: SOVEREIGN ELEVATION & ZERO-TRUST DELIVERY ]                                             |
-| Blast radius partitioning · Action-hash elevation (Valkyrie MFAA) · Ed25519 desktop OTA         |
-+---------------------------------------------------------------------------------------------------+
-```
+| Maturity Tier | Organizational Scale | Core Capability & Milestone Invariant |
+| :--- | :--- | :--- |
+| **Tier 1: Artifact Discipline** | 1 to 3 Engineers | Build once on merge to `main`; monotonic build sequence (`:b<N>`); zero tag-time compilation. |
+| **Tier 2: Registry & Digest Locking** | 4 to 12 Engineers | Triple-tagging scheme; mandatory `@sha256:...` digest pinning; automated source-parity checks. |
+| **Tier 3: Multi-Rail Declarative GitOps** | 13 to 50 Engineers | Sole-authority GitOps (Argo CD); Rail A/B synchronization; sandboxed formula inreplace. |
+| **Tier 4: Sovereign Zero-Trust Delivery** | 50+ Engineers | Hard blast radius partitioning; action-hash elevation (Valkyrie MFAA); signed Ed25519 OTA. |
 
 ---
 

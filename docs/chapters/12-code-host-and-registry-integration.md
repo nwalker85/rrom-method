@@ -8,75 +8,14 @@ A sovereign release methodology cannot rely on theoretical assertions or manual 
 
 The code host (whether self-hosted Forgejo/Gitea or enterprise GitHub) and the OCI artifact registry (Harbor) form the physical nervous system of the release engineering lifecycle. If this substrate is misconfigured, ambient build drift, recursive CI loops, network truncation failures, and unauthorized privilege escalation will compromise the integrity of the delivery pipeline.
 
-```text
-+----------------------------------------------------------------------------------------------------+
-|                      RROM AUTOMATION SUBSTRATE & ARTIFACT INGRESS TOPOLOGY                         |
-+----------------------------------------------------------------------------------------------------+
-|                                                                                                    |
-|  DEVELOPER WORKSPACE                                                                               |
-|  [ Feature Branch ] ──( Pull Request )──> [ Code Review / CI Checks ]                              |
-|                                                     │                                              |
-|                                              ( Merge to main )                                     |
-|                                                     ▼                                              |
-|  CODE HOST (Forgejo / GitHub)                                                                      |
-|  +----------------------------------------------------------------------------------------------+  |
-|  | INGRESS EVENT: push to main                                                                  |  |
-|  | Filter: paths-ignore guards (chart/**, docs/**, *.md)                                        |  |
-|  | Pipeline: .forgejo/workflows/build.yml / .github/workflows/build.yml                          |  |
-|  +----------------------------------------------------------------------------------------------+  |
-|                                                     │                                              |
-|                                     ( Dispatches to Isolated Runner )                              |
-|                                                     ▼                                              |
-|  CI RUNNER (Eikthyrnir Self-Hosted Fleet)                                                          |
-|  +----------------------------------------------------------------------------------------------+  |
-|  | - Ephemeral, rootless container execution (Podman / Docker)                                  |  |
-|  | - Compiles code & runs unit test matrix once                                                |  |
-|  | - Injects OCI Annotations (net.ravenmask.build, org.opencontainers.image.revision)           |  |
-|  | - Tags: :b<N>, :sha-<sha12>, :uat                                                            |  |
-|  +----------------------------------------------------------------------------------------------+  |
-|                                                     │                                              |
-|                         ┌───────────────────────────┴───────────────────────────┐                  |
-|                         │                                                       │                  |
-|                         ▼ (Blocked: 100MB Limit)                                ▼ (Fastpath: 10GbE)|
-|               [ Public Cloudflare Tunnel ]                           [ Internal Network Bypass ]   |
-|               https://harbor.ravenhelm.dev                           https://harbor-nginx.lan:8443 |
-|               HTTP 413 Payload Too Large                             Full Layer Ingestion OK       |
-|                         │                                                       │                  |
-|                         └───────────────────────────┬───────────────────────────┘                  |
-|                                                     ▼                                              |
-|  ARTIFACT REGISTRY (Harbor OCI Registry)                                                           |
-|  +----------------------------------------------------------------------------------------------+  |
-|  | PROJECT: platform/vitki                                                                      |  |
-|  | Immutable Digest: sha256:7f9a1b2c4d5e...                                                     |  |
-|  | Mutable Ingress Tags: :b42, :sha-9f8a3c21e01b, :uat                                          |  |
-|  +----------------------------------------------------------------------------------------------+  |
-|                                                     │                                              |
-|                                                     ▼                                              |
-|  PRE-PRODUCTION VALIDATION (STAGING / UAT)                                                         |
-|  Argo CD pulls :uat (sha256:7f9a1b2c...) -> End-to-End Validation Passed                           |
-|                                                     │                                              |
-|                                          ( Operator Cuts Release )                                 |
-|                                                     ▼                                              |
-|  CODE HOST (Forgejo / GitHub)                                                                      |
-|  +----------------------------------------------------------------------------------------------+  |
-|  | RELEASE EVENT: push tag v* (e.g., v1.4.2)                                                    |  |
-|  | Pipeline: .forgejo/workflows/release.yml / .github/workflows/release.yml                      |  |
-|  |                                                                                              |  |
-|  | JOB 1: verify (check-release-tag.sh & check-release-source-parity.sh)                        |  |
-|  |        Asserts ZERO application code drift; verifies Parity Triangle.                        |  |
-|  |                                                                                              |  |
-|  | JOB 2: promote (Registry v2 API Manifest Retagging)                                          |  |
-|  |        Fetches manifest for build :b42; PUTs manifest as :v1.4.2 (ZERO Recompilation)        |  |
-|  |                                                                                              |  |
-|  | JOB 3: package-chart (Helm OCI Chart Publishing)                                             |  |
-|  |        helm package chart/ -> helm push vitki-1.4.2.tgz oci://harbor.ravenhelm.dev/charts    |  |
-|  +----------------------------------------------------------------------------------------------+  |
-|                                                     │                                              |
-|                                                     ▼                                              |
-|  PRODUCTION RECONCILIATION (Argo CD)                                                               |
-|  GitOps repo pins values.yaml to sha256:7f9a1b2c... and :v1.4.2 -> Production Convergence      |
-+----------------------------------------------------------------------------------------------------+
-```
+| Pipeline Component | Infrastructure Target | Operational Mechanics & Invariants |
+| :--- | :--- | :--- |
+| **Ingress CI Trigger** | Push to `main` | Filtered by `paths-ignore` (`chart/**`, `docs/**`); dispatches build to self-hosted runner. |
+| **Build & Test** | Ephemeral Runner (Eikthyrnir) | Single-build compilation; runs test matrix; stamps OCI annotations; tags `:b<N>` and `:sha-<sha12>`. |
+| **Network Ingestion** | Harbor Internal Bypass | High-throughput 10GbE bypass avoids public Cloudflare 100MB body limits; stores immutable digest. |
+| **UAT Soak Validation** | Staging Stream (`:uat`) | Argo CD pulls `:uat` digest; synthetic probes verify operational stability before release. |
+| **Release Promotion** | Tag `v*` Trigger | Source parity asserted; Registry v2 API retags existing digest to `:vX.Y.Z`; zero recompilation. |
+| **Production Convergence** | Argo CD GitOps | GitOps repository pins `values.yaml` to immutable digest and chart version; rolling pod upgrade. |
 
 This chapter details the exact pipeline engineering specifications, runner configurations, network topologies, and API-level interactions required to construct an immutable, secure, and sovereign automation substrate.
 
@@ -108,26 +47,10 @@ This WAN route introduces critical failure points:
 * **WAN Throughput Latency & Timeouts:** Uploading multi-gigabyte container layers through external ingress tunnels saturates outbound WAN bandwidth, introduces upload buffering delays, and triggers edge connection timeouts (`HTTP 524 A Timeout Occurred`).
 * **External Dependency Coupling:** If upstream internet connectivity degrades or third-party DNS resolvers fail, internal CI runners are prevented from storing locally built artifacts.
 
-```text
-+---------------------------------------------------------------------------------------+
-|                       OCI LAYER INGESTION NETWORK TOPOLOGY                            |
-+---------------------------------------------------------------------------------------+
-|                                                                                       |
-|   CI RUNNER (eikthyrnir)                                                              |
-|   IP: 10.10.20.50 (VLAN 20: Automation Net)                                           |
-|                                                                                       |
-|   [ FAIL PATH: Public Ingress Tunnel ]                                                |
-|   Target: https://harbor.ravenhelm.dev/v2/                                            |
-|   Route:  Runner -> Default Gateway -> WAN -> Cloudflare Edge -> Tunnel -> Harbor     |
-|   Result: Layer > 100MB -> HTTP 413 Entity Too Large (FATAL TRUNCATION)               |
-|                                                                                       |
-|   [ FASTPATH: High-Speed Internal Ingress Bypass ]                                    |
-|   Target: https://harbor-nginx.lan:8443/v2/                                           |
-|   Route:  Runner -> Direct L2/L3 Routing (10GbE / Jumbo Frames MTU 9000) -> Harbor    |
-|   Result: Line-rate throughput (800+ MB/s), Zero Payload Caps, 100% Sovereign         |
-|                                                                                       |
-+---------------------------------------------------------------------------------------+
-```
+| Network Path | Ingress Target | Routing Substrate & Operational Result |
+| :--- | :--- | :--- |
+| **Fail Path: Public Edge Tunnel** | `https://harbor.ravenhelm.dev/v2/` | Runner $\to$ WAN $\to$ Cloudflare Edge $\to$ Tunnel $\to$ Harbor. Layers $> 100$MB terminated with HTTP 413. |
+| **Fastpath: Internal Ingress Bypass** | `https://harbor-nginx.lan:8443/v2/` | Direct L2/L3 10GbE network route (MTU 9000 jumbo frames). Line-rate throughput ($800+$ MB/s), zero payload caps. |
 
 To guarantee deterministic, high-throughput delivery, RROM mandates an **Internal Network Bypass**:
 1. Runners authenticate and push directly to the internal registry endpoint (e.g., `harbor-nginx.lan:8443`) over isolated local network interfaces (`10GbE`, MTU 9000 jumbo frames).
@@ -381,46 +304,11 @@ Its responsibility is strictly administrative and cryptographic:
 2. **Promote by Reference:** Invoke the OCI Registry v2 API to retag the pre-existing, pre-validated build digest to the new Semantic Version tag (`:vX.Y.Z`).
 3. **Publish OCI Helm Chart:** Package the Helm chart directory and push the packaged chart archive (`.tgz`) to Harbor's OCI chart repository.
 
-```text
-+---------------------------------------------------------------------------------------+
-|                    RELEASE PROMOTION WORKFLOW STATE PROGRESSION                       |
-+---------------------------------------------------------------------------------------+
-|                                                                                       |
-|   GIT TAG EVENT: push tag 'v1.4.2'                                                    |
-|                                                                                       |
-|   PHASE 1: PARITY VERIFICATION JOB (FAIL-FAST GATE)                                   |
-|   +───────────────────────────────────────────────────────────────────────────────+   |
-|   | 1. check-release-tag.sh:                                                      |   |
-|   |    Asserts: git tag (v1.4.2) == Chart.yaml version (1.4.2)                       |   |
-|   |             == values.yaml image.tag (v1.4.2)                                 |   |
-|   | 2. check-release-source-parity.sh:                                             |   |
-|   |    Asserts: git diff origin/main..tag touches ONLY chart/ & CHANGELOG.md      |   |
-|   |    If application code (*.go, *.rs, *.py, Containerfile) differs -> ABORT!    |   |
-|   +───────────────────────────────────────────────────────────────────────────────+   |
-|                                           │                                           |
-|                                           ▼ (Validation Passes)                       |
-|   PHASE 2: REGISTRY PROMOTION JOB (ZERO COMPILATION)                                  |
-|   +───────────────────────────────────────────────────────────────────────────────+   |
-|   | 1. Extract Pinned Build ID from chart/values.yaml (e.g., 'b42')               |   |
-|   | 2. Query Harbor Registry v2 Manifest API:                                     |   |
-|   |    GET /v2/platform/vitki/manifests/b42                                       |   |
-|   |    Extract Image Manifest & Content-Digest (@sha256:7f9a1b2c...)              |   |
-|   | 3. Assert Manifest Digest matches values.yaml image.digest                    |   |
-|   | 4. Retag Manifest under Release Tag:                                          |   |
-|   |    PUT /v2/platform/vitki/manifests/v1.4.2                                    |   |
-|   |    (Zero Bytes of Layer Blobs Transferred - Metadata Reference Only)          |   |
-|   +───────────────────────────────────────────────────────────────────────────────+   |
-|                                           │                                           |
-|                                           ▼                                           |
-|   PHASE 3: HELM OCI ARTIFACT PACKAGING & PUBLISHING                                   |
-|   +───────────────────────────────────────────────────────────────────────────────+   |
-|   | 1. helm package chart/ --version 1.4.2 --app-version 1.4.2                       |   |
-|   | 2. helm push vitki-1.4.2.tgz oci://harbor.ravenhelm.dev/charts/                  |   |
-|   |    Publishes Immutable Helm OCI Package to Sovereign Registry                 |   |
-|   +───────────────────────────────────────────────────────────────────────────────+   |
-|                                                                                       |
-+---------------------------------------------------------------------------------------+
-```
+| Promotion Phase | Guard / Executor | Invariant & Operational Action |
+| :--- | :--- | :--- |
+| **Phase 1: Parity Gate** | `check-release-tag.sh` & `check-release-source-parity.sh` | Asserts 3-way tag alignment; proves git diff touches ONLY `chart/` and `CHANGELOG.md`. Fails closed if source diffs exist. |
+| **Phase 2: Registry Retagging** | Registry v2 Manifest API | Extracts `:b<N>` digest from `values.yaml`; PUTs manifest under `:vX.Y.Z`. Zero compilation, zero layer blob transfer. |
+| **Phase 3: Chart Publishing** | Helm OCI Packager | `helm package chart/ --version X.Y.Z`; pushes immutable OCI chart archive to `oci://harbor.ravenhelm.dev/charts/`. |
 
 ### The Parity Verification Gate
 
@@ -753,37 +641,11 @@ The execution of automated pipelines introduces significant security blast-radiu
 
 RROM establishes an architectural model based on **Strict Runner Isolation** and **Least-Privilege Token Scoping**.
 
-```text
-+---------------------------------------------------------------------------------------+
-|                    CI RUNNER SECURITY & TOKEN PRIVILEGE BOUNDARIES                    |
-+---------------------------------------------------------------------------------------+
-|                                                                                       |
-|   INGRESS PIPELINE RUNNER (build.yml)                                                 |
-|   +───────────────────────────────────────────────────────────────────────────────+   |
-|   | Identity:    robot$platform+ci-ingress (Harbor Robot Account)                 |   |
-|   | Permissions: Project 'platform': Create Artifact, Push Artifact               |   |
-|   | Prohibitions: NO Pull/Push on other projects; NO Delete Artifact;              |   |
-|   |               NO Tag Immutability Modification; NO Kubernetes API Access      |   |
-|   | Git Token:   Read-Only Git Tree Access (persist-credentials: false)           |   |
-|   +───────────────────────────────────────────────────────────────────────────────+   |
-|                                                                                       |
-|   RELEASE PIPELINE RUNNER (release.yml)                                               |
-|   +───────────────────────────────────────────────────────────────────────────────+   |
-|   | Identity:    robot$platform+ci-release (Harbor Robot Account)                 |   |
-|   | Permissions: Project 'platform': Read Manifest, Create Tag (Retag);           |   |
-|   |              Project 'charts': Create Artifact, Push OCI Chart                |   |
-|   | Prohibitions: NO Image Compilation; NO Direct Branch Pushes;                   |   |
-|   |               NO Secret Reading from Other Namespaces                         |   |
-|   +───────────────────────────────────────────────────────────────────────────────+   |
-|                                                                                       |
-|   KUBERNETES PRODUCTION CLUSTER CONTROL PLANE                                         |
-|   +───────────────────────────────────────────────────────────────────────────────+   |
-|   | ZERO CI INGRESS PORTS: Neither runner possesses kubeconfig or API credentials.  |   |
-|   | Reconciliation is 100% PULL-BASED via Argo CD reading GitOps repositories.    |   |
-|   +───────────────────────────────────────────────────────────────────────────────+   |
-|                                                                                       |
-+---------------------------------------------------------------------------------------+
-```
+| Execution Plane | Robot Identity | Scoped Permissions & Invariant Boundaries |
+| :--- | :--- | :--- |
+| **Ingress Runner (`build.yml`)** | `robot$platform+ci-ingress` | Scoped strictly to push artifacts to `platform/`; prohibited from deleting tags, accessing other projects, or reading cluster secrets. |
+| **Release Runner (`release.yml`)** | `robot$platform+ci-release` | Read manifest and retag existing digests in `platform/`; push charts to `charts/`. Zero compiler access; zero push access to protected branches. |
+| **Production Cluster Plane** | In-Cluster Argo CD | Zero inbound ports open to CI runners. Cluster pulls state strictly via outbound GitOps polling. |
 
 ### Least-Privilege Harbor CI Robot Tokens
 

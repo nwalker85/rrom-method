@@ -52,26 +52,19 @@ Grade your organization against the following 10-point diagnostic rubric. Each q
 * **1 Point (Partial / Fragile):** The capability exists in pockets or relies on human discipline, manual runbooks, and unverified assumptions.
 * **2 Points (Sovereign / RROM Compliant):** The capability is fully automated, mechanically enforced by CI linters or admission controllers, and verified by cryptographic proof.
 
-```text
-+-------------------------------------------------------------------------------------------------------+
-| THE 10-POINT RROM DIAGNOSTIC SCORECARD                                                                |
-+----+----------------------------------------------+--------+------------------------------------------+
-| #  | Diagnostic Assessment Area                   | Points | Governing Principle                      |
-+----+----------------------------------------------+--------+------------------------------------------+
-| 01 | Build Once on Ingress                        | __ / 2 | RP-1: Build Once on Ingress              |
-| 02 | Kernel Scheduling Truth via Digest Pinning   | __ / 2 | RP-4: Tags for Humans, Digests for Runtime|
-| 03 | Staging & Production Bit-Level Parity        | __ / 2 | RP-3: Promotion by Reference             |
-| 04 | Multi-Surface Lockstep Synchronization       | __ / 2 | RP-6: Multi-Surface Lockstep             |
-| 05 | Declarative Convergence Authority            | __ / 2 | RP-9: Declarative Convergence Authority  |
-| 06 | Zero Ambient CI Authority                    | __ / 2 | RP-12: Zero Ambient CI Authority         |
-| 07 | Cutover Governance & ADR-011 Enforcement     | __ / 2 | RP-11: Cutovers Require ADRs             |
-| 08 | Automated Source Parity Gating               | __ / 2 | RP-5: Parity Precedes Promotion          |
-| 09 | Sub-60-Second Fail-Closed Rollback           | __ / 2 | RP-14: Fail-Closed Rollback              |
-| 10 | Cryptographic Provenance & Audit Ledgers     | __ / 2 | RP-16: Immutable Audit Ledgers           |
-+----+----------------------------------------------+--------+------------------------------------------+
-|    | TOTAL MATURITY SCORE                         | __ /20 | Maximum Score: 20 Points                 |
-+----+----------------------------------------------+--------+------------------------------------------+
-```
+| # | Diagnostic Assessment Area | Points | Governing Principle |
+| :--- | :--- | :--- | :--- |
+| **01** | Build Once on Ingress | ___ / 2 | RP-1: Build Once on Ingress |
+| **02** | Kernel Scheduling Truth via Digest Pinning | ___ / 2 | RP-4: Tags for Humans, Digests for Runtime |
+| **03** | Staging & Production Bit-Level Parity | ___ / 2 | RP-3: Promotion by Reference |
+| **04** | Multi-Surface Lockstep Synchronization | ___ / 2 | RP-6: Multi-Surface Lockstep |
+| **05** | Declarative Convergence Authority | ___ / 2 | RP-9: Declarative Convergence Authority |
+| **06** | Zero Ambient CI Authority | ___ / 2 | RP-12: Zero Ambient CI Authority |
+| **07** | Cutover Governance & ADR-011 Enforcement | ___ / 2 | RP-11: Cutovers Require ADRs |
+| **08** | Automated Source Parity Gating | ___ / 2 | RP-5: Parity Precedes Promotion |
+| **09** | Sub-60-Second Fail-Closed Rollback | ___ / 2 | RP-14: Fail-Closed Rollback |
+| **10** | Cryptographic Provenance & Audit Ledgers | ___ / 2 | RP-16: Immutable Audit Ledgers |
+| **TOTAL** | **MATURITY SCORE** | **___ / 20** | **Maximum Score: 20 Points** |
 
 ---
 
@@ -199,18 +192,12 @@ Grade your organization against the following 10-point diagnostic rubric. Each q
 
 Tally your score across the ten diagnostic areas (0 to 20 points). Locate your organization's maturity profile in the matrix below:
 
-```text
-+---------------------------------------------------------------------------------------------------+
-| RROM MATURITY BANDS                                                                               |
-+--------------+------------------------------------+-----------------------------------------------+
-| Score Band   | Maturity Level                     | Operational Posture                           |
-+--------------+------------------------------------+-----------------------------------------------+
-| 0 – 6 Points | Level 0: Fragile & Accidental      | High-risk, unverified, manual delivery        |
-| 7 – 12 Points| Level 1: Emerging Containerization | Automated CI, but brittle, unpinned delivery  |
-| 13 – 17 Points| Level 2: Disciplined GitOps        | Declarative, synchronized, repeatable delivery|
-| 18 – 20 Points| Level 3: Sovereign Autonomous Ops  | Cryptographic, multi-surface, zero-trust ops  |
-+--------------+------------------------------------+-----------------------------------------------+
-```
+| Score Band | Maturity Level | Operational Posture |
+| :--- | :--- | :--- |
+| **0 – 6 Points** | Level 0: Fragile & Accidental | High-risk, unverified, manual delivery |
+| **7 – 12 Points** | Level 1: Emerging Containerization | Automated CI, but brittle, unpinned delivery |
+| **13 – 17 Points** | Level 2: Disciplined GitOps | Declarative, synchronized, repeatable delivery |
+| **18 – 20 Points** | Level 3: Sovereign Autonomous Ops | Cryptographic, multi-surface, zero-trust ops |
 
 ---
 
@@ -304,26 +291,11 @@ Installing RROM within an established enterprise is not merely a technical recon
 
 **Ravenhelm LLC** provides executive advisory, pipeline architecture refactoring, and sovereign delivery systems engineering. We work directly with VPs of Engineering, Chief Architects, and Platform Leads to eliminate release debt permanently.
 
-```text
-+---------------------------------------------------------------------------------------------------+
-| THE RAVENHELM ADVISORY & IMPLEMENTATION ENGAGEMENT MODEL                                         |
-+---------------------------------------------------------------------------------------------------+
-| [ 1. THE 3-DAY RELEASE PIPELINE ASSESSMENT ]                                                      |
-| Topology discovery · Pipeline forensic audit · Release debt ledger · Executive roadmap           |
-+---------------------------------------------------------------------------------------------------+
-                                                  │
-                                                  ▼
-+---------------------------------------------------------------------------------------------------+
-| [ 2. TURNKEY MIGRATION SPRINTS (2 TO 4 WEEKS) ]                                                   |
-| Build-once pipeline refactoring · Argo CD GitOps install · Private tap inreplace automation       |
-+---------------------------------------------------------------------------------------------------+
-                                                  │
-                                                  ▼
-+---------------------------------------------------------------------------------------------------+
-| [ 3. SOVEREIGN INFRASTRUCTURE & VALKYRIE ELEVATION ]                                              |
-| Zero ambient CI authority (OIDC) · Action-hash MFAA elevation · Cosign provenance chains          |
-+---------------------------------------------------------------------------------------------------+
-```
+| Engagement Phase | Duration | Scope & Executive Deliverables |
+| :--- | :--- | :--- |
+| **1. The Release Assessment** | 3 Days | Topology discovery, pipeline forensic audit, release debt ledger, executive roadmap. |
+| **2. Turnkey Migration Sprints** | 2 to 4 Weeks | Build-once pipeline refactoring, Argo CD GitOps install, private tap inreplace automation. |
+| **3. Sovereign Elevation & Auth** | 4 to 6 Weeks | Zero ambient CI authority (OIDC), action-hash MFAA elevation, Cosign provenance chains. |
 
 ---
 
