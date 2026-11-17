@@ -25,22 +25,22 @@ IMPRINT = "Ravenhelm Publishing Series LLC"
 COPYRIGHT = "© 2026 Ravenhelm LLC. All rights reserved."
 
 CHAPTER_FILES = [
-    ("01-what-this-is.md", "01", "What This Is and Who It's For", None),
-    ("02-the-core-axiom.md", "02", "The Core Axiom: Builds Are the Unit; Releases Are Names", "diagram1-core-axiom"),
-    ("03-numbered-principles.md", "03", "The Numbered Principles", None),
-    ("04-the-operator-roles.md", "04", "The Operator Roles", None),
-    ("05-the-artifact-surface.md", "05", "The Artifact Surface: Immutability and Registry Topology", None),
-    ("06-the-three-physical-rails.md", "06", "The Three Physical Rails: GitOps, Tap, and OTA", "diagram2-three-rails"),
-    ("07-workflow-canon-and-validation-gate.md", "07", "Workflow Canon and the Source Parity Rule", "diagram3-parity-triangle"),
-    ("08-tiered-adoption-ladder.md", "08", "The Tiered Adoption Ladder", None),
-    ("09-cutovers-vs-deployments.md", "09", "Cutovers vs. Deployments: The Architectural Shift Doctrine", None),
-    ("10-hotfixes-emergencies-and-rollback.md", "10", "Hotfixes, Emergencies, and the Rollback Illusion", None),
-    ("11-security-blast-radius-and-elevation.md", "11", "Security, Blast Radius, and Elevation Gates", "diagram4-blast-radius"),
-    ("12-code-host-and-registry-integration.md", "12", "Code Host and Registry Integration", None),
-    ("13-auditing-provenance-and-compliance.md", "13", "Auditing, Provenance, and Continuous Verification", None),
-    ("14-the-assessment.md", "14", "The Release Operations Assessment", None),
-    ("appendix-a-formula-inreplace-playbook.md", "A", "Formula Inreplace Playbook (Rail B)", None),
-    ("appendix-b-vitki-reference-specification.md", "B", "Vitki Controller Reference Specification", None),
+    ("01-what-this-is.md", "01", "What This Is and Who It's For", None, "The Release Crisis · Physics of Failure · Anatomy of a Release Outage · The Triple Divergence"),
+    ("02-the-core-axiom.md", "02", "The Core Axiom: Builds Are the Unit; Releases Are Names", "diagram1-core-axiom", "The First Law of Sovereign Release · Three Lifecycle Stages · Build-on-Tag Autopsy · Legacy vs. RROM"),
+    ("03-numbered-principles.md", "03", "The Numbered Principles", None, "Citing the Principles · Category I: Artifact Custody · Category II: Multi-Surface Rails · Governance & Proof"),
+    ("04-the-operator-roles.md", "04", "The Operator Roles", None, "Human and Agent Responsibilities · The Author · The Release Custodian · The Delivery Closer"),
+    ("05-the-artifact-surface.md", "05", "The Artifact Surface: Immutability and Registry Topology", None, "Content-Addressable Storage · Triple-Tagging Ingress Scheme · Docker Registry v2 Protocol · Digest Promotion"),
+    ("06-the-three-physical-rails.md", "06", "The Three Physical Rails: GitOps, Tap, and OTA", "diagram2-three-rails", "Multi-Surface Delivery · Rail A: Server GitOps · Rail B: Workstation Tap · Rail C: Desktop OTA"),
+    ("07-workflow-canon-and-validation-gate.md", "07", "Workflow Canon and the Source Parity Rule", "diagram3-parity-triangle", "Anatomy of the Friday Incident · Finite State Machine · Source Parity Rule · Verification Gates"),
+    ("08-tiered-adoption-ladder.md", "08", "The Tiered Adoption Ladder", None, "Four Maturity Tiers · Tier 1: Artifact Discipline · Tier 2: Digest Locking · Tier 3: Declarative GitOps"),
+    ("09-cutovers-vs-deployments.md", "09", "Cutovers vs. Deployments: The Architectural Shift Doctrine", None, "Codifying the Cutover Boundary · Deploys vs. Cutovers · The Bifrost Incident · Four Mandatory Pillars"),
+    ("10-hotfixes-emergencies-and-rollback.md", "10", "Hotfixes, Emergencies, and the Rollback Illusion", None, "The Rollback Axiom · Zero-Downtime Rollback Execution · Accelerated Hotfix Protocol · Root Cause Latch"),
+    ("11-security-blast-radius-and-elevation.md", "11", "Security, Blast Radius, and Elevation Gates", "diagram4-blast-radius", "Blast Radius Partitioning · Application Mutations · Control Plane Mutations · Ambient Authority & Vaults"),
+    ("12-code-host-and-registry-integration.md", "12", "Code Host and Registry Integration", None, "Automation Substrate · Ingress Build Workflow · Release Promotion Workflow · Runner Security Architecture"),
+    ("13-auditing-provenance-and-compliance.md", "13", "Auditing, Provenance, and Continuous Verification", None, "End of Attestation-by-Affidavit · SBOM Generation & In-Toto · Verification Triangle · Forensic Walkthrough"),
+    ("14-the-assessment.md", "14", "The Release Operations Assessment", None, "Assessing Release Debt · 10-Point Diagnostic Rubric · Score Bands & Profiles · Commercial Advisory Model"),
+    ("appendix-a-formula-inreplace-playbook.md", "A", "Formula Inreplace Playbook (Rail B)", None, "Workstation Package Taps · Sandbox Isolation Model · Rust/Cargo Formula Pattern · Go Linker Flag Pattern"),
+    ("appendix-b-vitki-reference-specification.md", "B", "Vitki Controller Reference Specification", None, "Canonical Reference Architecture · Vitki Directory Topology · Production Helm Chart · Controller Source Code"),
 ]
 
 def markdown_to_typst_via_pandoc(md_path, edition):
@@ -99,6 +99,31 @@ def build_typst_document(edition):
         card_border = "#2B303A"
         raven_logo = "assets/ravenhelm-raven-bone-eye.svg"
 
+    def format_toc_title(t):
+        wrap_targets = [
+            "The Core Axiom: Builds Are the Unit; Releases Are Names",
+            "The Artifact Surface: Immutability and Registry Topology",
+            "Cutovers vs. Deployments: The Architectural Shift Doctrine",
+        ]
+        if t in wrap_targets and ": " in t:
+            p1, p2 = t.split(": ", 1)
+            return p1 + ":#linebreak()" + p2
+        return t
+
+    toc_p1_lines = []
+    for file_name, num, title, diagram_base, summary in CHAPTER_FILES[:8]:
+        label_id = f"ch-{num.lower()}"
+        toc_title = format_toc_title(title)
+        toc_p1_lines.append(f'  #toc-entry("{num}", [{toc_title}], "{label_id}", "{summary}")')
+    toc_p1_str = "\n".join(toc_p1_lines)
+
+    toc_p2_lines = []
+    for file_name, num, title, diagram_base, summary in CHAPTER_FILES[8:]:
+        label_id = f"ch-{num.lower()}"
+        toc_title = format_toc_title(title)
+        toc_p2_lines.append(f'  #toc-entry("{num}", [{toc_title}], "{label_id}", "{summary}")')
+    toc_p2_str = "\n".join(toc_p2_lines)
+
     preamble = f'''
 #let ink = rgb("{ink}")
 #let paper = rgb("{paper}")
@@ -107,6 +132,12 @@ def build_typst_document(edition):
 #let gold = rgb("{gold}")
 #let card_bg = rgb("{card_bg}")
 #let card_border = rgb("{card_border}")
+
+#set document(
+  title: "Ravenhelm Release Operations Methodology (RROM)",
+  author: "{BYLINE}",
+  keywords: ("RROM", "Ravenhelm", "Release Doctrine", "ADR 0007", "GitOps", "Harbor", "Argo CD")
+)
 
 #set page(
   width: 5.5in,
@@ -165,12 +196,13 @@ def build_typst_document(edition):
 // Code styling: block code
 #show raw.where(block: true): it => block(
   width: 100%,
+  clip: true,
   fill: card_bg,
   stroke: 0.5pt + card_border,
   inset: 7pt,
   radius: 3pt,
   spacing: 0.9em,
-  text(font: "IBM Plex Mono", size: 7.4pt, fill: ink, it)
+  text(font: "IBM Plex Mono", size: 6.8pt, fill: ink, it)
 )
 
 // Quote / Callout styling
@@ -185,27 +217,63 @@ def build_typst_document(edition):
 )
 
 // Table styling
-#show table: set text(font: "IBM Plex Mono", size: 7.6pt)
+#show table: set text(font: "IBM Plex Mono", size: 6.8pt)
 #show table.cell.where(y: 0): set text(weight: "bold", fill: ink)
+
+// Math equation styling
+#show math.equation.where(block: true): set text(size: 8.2pt)
+
+// Table of Contents custom entry helpers (RLOM standard)
+#let toc-prelim(title, label-id) = [
+  #v(0.25em)
+  #block(width: 100%)[
+    #text(font: "Source Serif 4", size: 8.6pt, style: "italic", fill: ink)[#link(label(label-id))[#title]]
+    #box(width: 1fr, pad(x: 4pt, repeat([#text(fill: ash, size: 7pt)[. ]])))
+    #text(font: "IBM Plex Mono", size: 7.8pt, fill: ash)[#context counter(page).at(label(label-id)).first()]
+  ]
+]
+
+#let toc-entry(num, title, label-id, summary) = [
+  #v(0.26em)
+  #grid(
+    columns: (18pt, 1fr),
+    gutter: 5pt,
+    text(font: "IBM Plex Mono", size: 7.8pt, weight: 600, fill: garnet)[#num],
+    [
+      #block(width: 100%)[
+        #text(font: "Source Serif 4", size: 8.4pt, weight: 600, fill: ink)[#link(label(label-id))[#title]]
+        #box(width: 1fr, pad(x: 4pt, repeat([#text(fill: ash, size: 7pt)[. ]])))
+        #text(font: "IBM Plex Mono", size: 7.8pt, fill: ash)[#context counter(page).at(label(label-id)).first()]
+      ]
+      #v(0.05em)
+      #text(font: "Source Serif 4", size: 7.0pt, fill: ash)[#summary]
+    ]
+  )
+]
 
 // ==========================================
 // 1. FRONT COVER
 // ==========================================
-#page(margin: 0in, numbering: none, header: none, footer: none)[
-  #place(top + left, rect(width: 100%, height: 100%, fill: paper))
-  #place(center + horizon, dy: -1.3in)[
-    #image("{raven_logo}", width: 3.5in)
-  ]
-  #place(center + horizon, dy: 1.4in)[
-    #set align(center)
-    #text(font: "Source Serif 4", size: 24pt, weight: 600, fill: ink)[Ravenhelm Release Operations]
+#page(
+  margin: (x: 0.85in, top: 0.9in, bottom: 0.9in),
+  numbering: none,
+  header: none,
+  footer: none
+)[
+  #align(center)[
+    #v(0.35in)
+    #image("{raven_logo}", width: 2.25in)
+    #v(0.45in)
+    #text(font: "Source Serif 4", size: 17pt, weight: 600, fill: ink)[Ravenhelm Release Operations]
     #v(0.08in)
-    #text(font: "Source Serif 4", size: 18pt, weight: 400, fill: garnet)[Methodology]
+    #text(font: "Source Serif 4", size: 15pt, weight: 400, fill: garnet)[Methodology]
     #v(0.2in)
-    #text(font: "IBM Plex Mono", size: 8.2pt, fill: ash, tracking: 0.16em)[A TIERED METHODOLOGY FOR ARTIFACT CUSTODY & MULTI-SURFACE DEPLOYMENT]
-    #v(0.55in)
+    #box(width: 82%)[
+      #text(font: "IBM Plex Mono", size: 7pt, fill: ash, tracking: 0.10em)[A TIERED METHODOLOGY FOR ARTIFACT CUSTODY & MULTI-SURFACE DEPLOYMENT]
+    ]
+    #v(0.8in)
     #text(font: "Source Serif 4", size: 11pt, weight: 600, fill: ink)[{BYLINE}]
-    #v(0.05in)
+    #v(0.06in)
     #text(font: "IBM Plex Mono", size: 7.5pt, fill: ash, tracking: 0.12em)[RAVENHELM LLC · 2026]
   ]
 ]
@@ -214,6 +282,17 @@ def build_typst_document(edition):
 // 2. VERSO / COPYRIGHT & IMPRINT
 // ==========================================
 #page(numbering: none, header: none, footer: none)[
+  #v(1.4in)
+  #align(center)[
+    #text(font: "Source Serif 4", size: 13pt, weight: 600)[Ravenhelm Release Operations Methodology]
+    #v(0.18in)
+    #text(font: "Source Serif 4", size: 9.5pt, style: "italic", fill: ash)[
+      "Builds are the unit; releases are names.\\
+       Releases never rebuild code."
+    ]
+    #v(0.08in)
+    #text(font: "IBM Plex Mono", size: 7pt, fill: garnet, tracking: 0.14em)[— THE CORE AXIOM (ADR 0007)]
+  ]
   #v(1fr)
   #set text(font: "IBM Plex Mono", size: 7pt, fill: ash, tracking: 0.04em, hyphenate: false)
   #set par(justify: false, first-line-indent: 0em, leading: 0.9em)
@@ -236,43 +315,47 @@ def build_typst_document(edition):
 ]
 
 // ==========================================
-// 3. HALF TITLE & EPIGRAPH
+// 3. TABLE OF CONTENTS (RLOM STANDARD)
 // ==========================================
-#page(numbering: none, header: none, footer: none)[
-  #v(2.3in)
-  #align(center)[
-    #text(font: "Source Serif 4", size: 14pt, weight: 600)[Ravenhelm Release Operations Methodology]
-    #v(0.25in)
-    #text(font: "Source Serif 4", size: 10.5pt, style: "italic", fill: ash)[
-      "Builds are the unit; releases are names.\\
-       Releases never rebuild code."
-    ]
-    #v(0.12in)
-    #text(font: "IBM Plex Mono", size: 7.5pt, fill: garnet, tracking: 0.14em)[— THE CORE AXIOM (ADR 0007)]
+#page(
+  margin: (top: 0.65in, bottom: 0.65in, inside: 0.85in, outside: 0.75in),
+  numbering: none,
+  header: none,
+  footer: none
+)[
+  #v(0.08in)
+  #align(left)[
+    #text(font: "Source Serif 4", size: 20pt, weight: 600, fill: ink)[Contents]
   ]
+  #v(0.12in)
+
+  #toc-prelim("How to read it", "front-how-to-read")
+  #toc-prelim("The principles at a glance", "front-principles")
+
+  #v(0.6em)
+
+{toc_p1_str}
+]
+
+#page(
+  margin: (top: 0.65in, bottom: 0.65in, inside: 0.85in, outside: 0.75in),
+  numbering: none,
+  header: none,
+  footer: none
+)[
+  #v(0.12in)
+{toc_p2_str}
 ]
 
 // ==========================================
-// 4. TABLE OF CONTENTS
-// ==========================================
-#page(numbering: none, header: none, footer: none)[
-  #v(0.4in)
-  #align(center)[
-    #text(font: "Source Serif 4", size: 18pt, weight: 600)[Contents]
-  ]
-  #v(0.25in)
-  #outline(title: none, depth: 1, indent: auto)
-]
-
-// ==========================================
-// 5. HOW TO READ IT
+// 4. HOW TO READ IT
 // ==========================================
 #page(numbering: none, header: none, footer: none)[
   #v(0.3in)
   #align(left)[
     #text(font: "IBM Plex Mono", size: 8.5pt, weight: 600, fill: garnet, tracking: 0.16em)[GUIDE]
     #v(0.08in)
-    #heading(level: 1, numbering: none, outlined: true)[How to Read It]
+    #heading(level: 1, numbering: none, outlined: true)[How to Read It] <front-how-to-read>
     #v(0.05in)
     #line(length: 100%, stroke: 0.5pt + ash)
   ]
@@ -304,14 +387,14 @@ def build_typst_document(edition):
 ]
 
 // ==========================================
-// 6. THE PRINCIPLES AT A GLANCE
+// 5. THE PRINCIPLES AT A GLANCE
 // ==========================================
 #page(numbering: none, header: none, footer: none)[
   #v(0.3in)
   #align(left)[
     #text(font: "IBM Plex Mono", size: 8.5pt, weight: 600, fill: garnet, tracking: 0.16em)[CANON]
     #v(0.08in)
-    #heading(level: 1, numbering: none, outlined: true)[The Principles at a Glance]
+    #heading(level: 1, numbering: none, outlined: true)[The Principles at a Glance] <front-principles>
     #v(0.05in)
     #line(length: 100%, stroke: 0.5pt + ash)
   ]
@@ -349,7 +432,7 @@ def build_typst_document(edition):
 ]
 
 // ==========================================
-// 7. RUNNING HEADERS & BODY PAGES
+// 6. RUNNING HEADERS & BODY PAGES
 // ==========================================
 #set page(
   numbering: "1",
@@ -375,7 +458,7 @@ def build_typst_document(edition):
 '''
 
     body_chapters = []
-    for file_name, num, title, diagram_base in CHAPTER_FILES:
+    for file_name, num, title, diagram_base, summary in CHAPTER_FILES:
         chapter_path = os.path.join(DOCS_DIR, file_name)
         if not os.path.exists(chapter_path):
             continue
@@ -425,7 +508,7 @@ def build_typst_document(edition):
 #align(left)[
   #text(font: "IBM Plex Mono", size: 8.5pt, weight: 600, fill: garnet, tracking: 0.16em)[{label_prefix} · {num}]
   #v(0.08in)
-  #heading(level: 1, numbering: (..n) => "{num}", outlined: true)[{title}]
+  #heading(level: 1, numbering: (..n) => "{num}", outlined: true)[{title}] <ch-{num.lower()}>
   #v(0.12in)
   #text(font: "IBM Plex Mono", size: 7pt, fill: ash, tracking: 0.08em)[{badge_text}]
   #v(0.05in)
