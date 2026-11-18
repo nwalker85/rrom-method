@@ -1,20 +1,20 @@
 # Appendix B: The Vitki Reference Specification
 
-<!-- LICENSE: RROM Community License 1.0 (c) 2026 Ravenhelm LLC -->
+<!-- LICENSE: © 2026 Ravenhelm LLC. Licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Attribution required: "Ravenhelm LLC — Ravenhelm Release Operations Methodology (RROM), https://ravenhelm.dev". -->
 
-## The Canonical Reference Architecture
+## The Canonical Reference Architecture (Ratified 2026-09-21, ADR-0007)
 
-Vitki (`nate/vitki`) is the production reference implementation that birthed the Ravenhelm Release Operations Methodology (RROM). Operating as the core platform orchestrator, scheduling backend, and event gateway across Ravenhelm's high-availability infrastructure, Vitki was the crucible in which the **Builds Are the Unit, Releases Are Names (ADR-0007)** doctrine was forged.
+On September 21, 2026, we ratified **ADR-0007: Builds Are the Unit, Releases Are Names** across the Ravenhelm estate, using **Vitki** (`nate/vitki`) as the reference implementation.
 
-Prior to the codification of RROM, Vitki suffered from the same structural release pathologies that plague modern software teams: releases triggered automated rebuilds from git tags, resulting in container images with different SHA-256 digests than the code tested in staging. Package manifests were bumped in git commits, polluting git bisect logs and creating phantom diffs. Emergency rollbacks required navigating complex git revert trees while services remained broken.
+Before September 21, 2026, `Vitki` carried the same v1 scars as every conventional container pipeline: pushing a `v*` tag kicked off a fresh container build, meaning the image deployed to `Norns` (`urd`, `verdandi`, `skuld`) never shared a SHA-256 digest with the image that had just finished soaking in UAT. Version bumps dirtied source files on release branches, triggering recursive CI runs on merge, and rolling back meant waiting on a runner to rebuild or re-push tags.
 
-Vitki resolved these challenges by establishing the unified multi-surface release engine codified in this specification. This appendix documents the complete, unredacted reference architecture: directory topology, production Helm chart templates, environment value overrides, automated release scripts speaking the OCI Distribution Registry v2 API, and declarative Argo CD GitOps custom resources.
+We stripped the tag-time compiler out of `Vitki` and wired the release pipeline directly to the **Harbor** OCI Registry v2 API and `norns-gitops`. Every merge to `main` compiles the binary once, pushes `:b<N>`, `:sha-<commit12>`, and `:uat` through internal `harbor-nginx`, and records the immutable 64-character hex `@sha256` digest. When `:b<N>` is ready to become `v1.4.2`, `scripts/release-pr.sh` pins that digest in `chart/values.yaml`, `scripts/check-release-source-parity.sh` proves zero application source files moved, and `release.yml` retags the existing manifest in Harbor via HTTP `PUT` in under 500 milliseconds.
+
+This appendix contains the complete, copy-pasteable `Vitki` reference specification.
 
 ---
 
 ## 1. Directory Topology and Component Inventory
-
-The Vitki repository maintains strict architectural separation between application source code, container packaging, declarative deployment manifests, and release gatekeeping scripts:
 
 ```text
 vitki/
@@ -53,18 +53,18 @@ vitki/
             └── 0007-builds-are-the-unit-releases-are-names.md
 ```
 
-### Component Responsibilities
+### Component Boundaries
 
-1. **Application Source (`cmd/`, `internal/`):** Contains pure Go service logic. These directories are frozen during the release ceremony; any change to these files inside a release branch triggers immediate gatekeeper rejection.
-2. **Helm Chart (`chart/`):** Packages Kubernetes resources. `Chart.yaml` tracks SemVer metadata, while `values.yaml` acts as the single source of truth for container image digests in production.
-3. **Release Tooling (`scripts/`):** Standalone, dependency-minimized Bash scripts executing release preparation, OCI registry retagging, and cryptographic parity assertions.
-4. **Architecture Decision Records (`docs/architecture/decisions/`):** Version-controlled ADRs documenting the technical rationale behind release constraints and deployment topology.
+1. **Application Source (`cmd/`, `internal/`):** Pure Go service code. Frozen during release PRs; any diff here trips `check-release-source-parity.sh` and aborts the gate.
+2. **Helm Chart (`chart/`):** Renders Kubernetes manifests for `Norns`. `Chart.yaml` holds the SemVer name; `values.yaml` holds the `:b<N>` build ID and 64-hex `@sha256` digest.
+3. **Release Tooling (`scripts/`):** Four self-contained Bash scripts that prepare the release branch, guard source and tag parity, and retag manifests in Harbor via Registry v2 HTTP calls.
+4. **Architecture Decision Records (`docs/architecture/decisions/`):** In-repo law governing runtime (`0002`), packaging (`0003`), SemVer naming (`0004`), and the single-build doctrine (`0007`).
 
 ---
 
 ## 2. Production Helm Chart Specification
 
-Vitki's Helm chart is engineered for strict immutability. Unlike naive charts that specify `image: {{ .Values.image.repository }}:{{ .Values.image.tag }}` and leave digest resolution to the container runtime, Vitki renders container images using the cryptographic digest pin: `repository:tag@sha256:<digest>`.
+`chart/templates/deployment.yaml` renders the container image coordinate as `repository:tag@sha256:<digest>`. The human reads the tag; the `Norns` kubelet schedules the `@sha256` digest.
 
 ### `chart/Chart.yaml`
 
@@ -90,8 +90,8 @@ maintainers:
 ### `chart/values.yaml` (Production Environment)
 
 ```yaml
-# Default production values for Vitki orchestrator.
-# All image references MUST be pinned to immutable SHA256 digests.
+# Default production values for Vitki orchestrator on Norns (urd, verdandi, skuld).
+# All production image references MUST pin a 64-char hex SHA-256 digest.
 
 replicaCount: 3
 
@@ -132,7 +132,7 @@ service:
   metricsPort: 9090
 
 ingress:
-  enabled: false # Traffic routed via Odin Traefik reverse proxy
+  enabled: false # Routed via Odin Traefik reverse proxy
 
 resources:
   limits:
@@ -188,14 +188,14 @@ env:
 
 ```yaml
 # Staging / UAT overrides for Vitki.
-# Follows the moving :uat build tag directly from continuous integration.
+# Tracks the moving :uat stream pushed by build.yml on main.
 
 replicaCount: 1
 
 image:
   repository: harbor.ravenhelm.dev/platform/vitki
   tag: uat
-  digest: "" # Dynamic digest resolution in UAT
+  digest: ""
   build: latest
   pullPolicy: Always
 
@@ -204,7 +204,7 @@ fullnameOverride: "vitki-uat"
 service:
   type: NodePort
   httpPort: 8080
-  nodePort: 30109 # Separate NodePort for staging access
+  nodePort: 30109
   metricsPort: 9090
 
 resources:
@@ -258,16 +258,10 @@ env:
 ### `chart/templates/_helpers.tpl`
 
 ```yaml
-{{/*
-Expand the name of the chart.
-*/}}
 {{- define "vitki.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{/*
-Create a default fully qualified app name.
-*/}}
 {{- define "vitki.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
@@ -277,9 +271,6 @@ Create a default fully qualified app name.
 {{- end }}
 {{- end }}
 
-{{/*
-Common labels
-*/}}
 {{- define "vitki.labels" -}}
 helm.sh/chart: {{ include "vitki.name" . }}-{{ .Chart.Version | replace "+" "_" }}
 {{ include "vitki.selectorLabels" . }}
@@ -290,9 +281,6 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 rrom.ravenhelm.dev/build-id: {{ .Values.image.build | quote }}
 {{- end }}
 
-{{/*
-Selector labels
-*/}}
 {{- define "vitki.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "vitki.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
@@ -406,14 +394,14 @@ spec:
 
 ## 3. Production Helper Scripts: Complete Source Code
 
-Vitki's release pipeline is governed by four hardened shell scripts. These scripts enforce strict input validation, communicate directly with the Harbor OCI Distribution Registry v2 API via `curl` and `jq`, and fail closed whenever an operation violates RROM release principles.
+These four scripts run the release gate. Credentials pass to `curl` over `stdin` (`--config -`) so secrets never touch `argv`, and every SHA-256 digest is checked against `^sha256:[a-f0-9]{64}$` so an empty result set never passes as a match.
 
 ### `scripts/release-pr.sh` (Release Pinning Orchestrator)
 
 ```bash
 #!/usr/bin/env bash
 # ==============================================================================
-# scripts/release-pr.sh — Pin build b<N> to release tag vX.Y.Z in Helm manifests
+# scripts/release-pr.sh - Pin build b<N> to release tag vX.Y.Z in Helm manifests
 # Part of the Ravenhelm Release Operations Methodology (RROM)
 # ==============================================================================
 
@@ -443,7 +431,6 @@ fi
 BUILD_ID="$1"
 RELEASE_TAG="$2"
 
-# 1. Validate argument syntax
 if [[ ! "${BUILD_ID}" =~ ^b[0-9]+$ ]]; then
   echo "[-] ERROR: Invalid build ID '${BUILD_ID}'. Must match format ^b[0-9]+$" >&2
   exit 1
@@ -462,61 +449,53 @@ echo "[*] Initializing Release Pinning for Vitki..."
 echo "    Target Build: ${BUILD_ID}"
 echo "    Release Tag:  ${RELEASE_TAG} (SemVer: ${SEMVER_BARE})"
 
-# 2. Verify git workspace cleanliness
 if [ -n "$(git status --porcelain)" ]; then
   echo "[-] ERROR: Git working tree contains unstaged or dirty changes. Aborting." >&2
   git status --short
   exit 1
 fi
 
-# 3. Resolve cryptographic SHA256 digest from Harbor registry
 echo "[*] Querying Harbor registry for digest of build '${BUILD_ID}'..."
 DIGEST=$(./scripts/harbor-artifact.sh resolve "${BUILD_ID}")
 
-if [ -z "${DIGEST}" ] || [[ ! "${DIGEST}" =~ ^sha256:[a-f0-9]{64}$ ]]; then
-  echo "[-] ERROR: Failed to resolve valid SHA256 digest for build '${BUILD_ID}'" >&2
+if [[ ! "${DIGEST}" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+  echo "[-] ERROR: Failed to resolve valid 64-hex SHA256 digest for build '${BUILD_ID}'" >&2
   echo "    Received: '${DIGEST}'" >&2
   exit 1
 fi
 echo "[+] Resolved digest: ${DIGEST}"
 
-# 4. Create and checkout dedicated release branch
 BRANCH_NAME="release/${RELEASE_TAG}"
 echo "[*] Creating release branch: ${BRANCH_NAME}"
 git checkout -b "${BRANCH_NAME}"
 
-# 5. Update Helm Chart.yaml version metadata
 echo "[*] Updating chart/Chart.yaml to version ${SEMVER_BARE}..."
 yq -i ".version = \"${SEMVER_BARE}\"" chart/Chart.yaml
 yq -i ".appVersion = \"${SEMVER_BARE}\"" chart/Chart.yaml
 
-# 6. Pin values.yaml image coordinates
 echo "[*] Pinning image coordinates in chart/values.yaml..."
 yq -i ".image.tag = \"${RELEASE_TAG}\"" chart/values.yaml
 yq -i ".image.digest = \"${DIGEST}\"" chart/values.yaml
 yq -i ".image.build = \"${BUILD_ID}\"" chart/values.yaml
 
-# 7. Update CHANGELOG.md release header if placeholder exists
-if grep -q "## \[Unreleased\]" CHANGELOG.md; then
+if [ -f CHANGELOG.md ] && grep -q "## \[Unreleased\]" CHANGELOG.md; then
   RELEASE_DATE=$(date -u +"%Y-%m-%d")
-  sed -i.bak "s/## \[Unreleased\]/## [Unreleased]\n\n## [${RELEASE_TAG}] - ${RELEASE_DATE}/" CHANGELOG.md
-  rm -f CHANGELOG.md.bak
+  python3 -c '
+import pathlib, sys
+p = pathlib.Path("CHANGELOG.md")
+tag, dt = sys.argv[1], sys.argv[2]
+p.write_text(p.read_text().replace("## [Unreleased]", f"## [Unreleased]\n\n## [{tag}] - {dt}", 1))
+' "${RELEASE_TAG}" "${RELEASE_DATE}"
 fi
 
-# 8. Assert zero application source drift before committing
 echo "[*] Executing source parity assertion..."
 ./scripts/check-release-source-parity.sh
 
-# 9. Commit pinned manifests
 git add chart/Chart.yaml chart/values.yaml CHANGELOG.md
 COMMIT_MSG="chore(release): pin ${RELEASE_TAG} to ${BUILD_ID} (${DIGEST:0:19})"
 git commit -m "${COMMIT_MSG}"
 
-echo "[+] Release branch prepared successfully."
-echo "    Next steps:"
-echo "    1. Push branch: git push origin ${BRANCH_NAME}"
-echo "    2. Open PR against 'main' with title: 'Release ${RELEASE_TAG}'"
-echo "    3. Upon merge approval, push annotated tag: git tag -a ${RELEASE_TAG} -m 'Release ${RELEASE_TAG}'"
+echo "[+] Release branch prepared: ${BRANCH_NAME}"
 ```
 
 ---
@@ -526,36 +505,32 @@ echo "    3. Upon merge approval, push annotated tag: git tag -a ${RELEASE_TAG} 
 ```bash
 #!/usr/bin/env bash
 # ==============================================================================
-# scripts/harbor-artifact.sh — Registry v2 client for artifact retagging & inspection
+# scripts/harbor-artifact.sh - Registry v2 client for artifact retagging & inspection
 # Communicates directly with Harbor OCI Registry without requiring Docker/Podman
 # ==============================================================================
 
 set -euo pipefail
 
-REGISTRY="${HARBOR_REGISTRY:-harbor.ravenhelm.dev}"
+REGISTRY="${HARBOR_REGISTRY:-harbor-nginx.lan:8443}"
 REPOSITORY="${HARBOR_REPO:-platform/vitki}"
 ROBOT_USER="${HARBOR_ROBOT_USER:-robot\$norns-deploy}"
 ROBOT_SECRET="${HARBOR_ROBOT_SECRET:-}"
 
-# Load credentials from 1Password CLI if not present in environment
-if [ -z "${ROBOT_SECRET}" ] && command -v op >/dev/null 2>&1; then
-  ROBOT_SECRET=$(op item get "Harbor Robot norns-deploy" --vault ravenmask --fields credential --reveal 2>/dev/null || true)
-fi
-
 if [ -z "${ROBOT_SECRET}" ]; then
-  echo "[-] ERROR: HARBOR_ROBOT_SECRET environment variable is unset and 1Password resolution failed." >&2
+  echo "[-] ERROR: HARBOR_ROBOT_SECRET environment variable is unset." >&2
   exit 1
 fi
 
-AUTH_HEADER="Authorization: Basic $(printf '%s:%s' "${ROBOT_USER}" "${ROBOT_SECRET}" | base64)"
-
-# Accept headers supporting Docker Schema 2 and OCI Image / Index manifests
 ACCEPT_HEADERS=(
   -H "Accept: application/vnd.docker.distribution.manifest.v2+json"
   -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json"
   -H "Accept: application/vnd.oci.image.manifest.v1+json"
   -H "Accept: application/vnd.oci.image.index.v1+json"
 )
+
+curl_auth() {
+  printf 'user = "%s:%s"\n' "${ROBOT_USER}" "${ROBOT_SECRET}" | curl --config - "$@"
+}
 
 usage() {
   cat <<EOF
@@ -565,12 +540,6 @@ Subcommands:
   resolve <tag>                  Returns the sha256 digest of an image tag
   retag <source-tag> <dest-tag>  Applies a new tag to an existing digest via Registry PUT
   verify-digest <tag> <digest>   Asserts that a tag resolves to the expected digest
-
-Environment Variables:
-  HARBOR_REGISTRY     Default: harbor.ravenhelm.dev
-  HARBOR_REPO         Default: platform/vitki
-  HARBOR_ROBOT_USER   Default: robot\$norns-deploy
-  HARBOR_ROBOT_SECRET Required (or resolved via 1Password)
 EOF
   exit 1
 }
@@ -579,26 +548,24 @@ subcommand_resolve() {
   local tag="$1"
   local url="https://${REGISTRY}/v2/${REPOSITORY}/manifests/${tag}"
 
-  # Issue HEAD request to extract Docker-Content-Digest header
   local digest
-  digest=$(curl -sS -I -fail \
+  digest=$(curl_auth -sS -I --fail \
     "${ACCEPT_HEADERS[@]}" \
-    -H "${AUTH_HEADER}" \
     "${url}" | grep -i '^docker-content-digest:' | awk '{print $2}' | tr -d '\r\n')
 
-  if [ -n "${digest}" ]; then
+  if [[ "${digest}" =~ ^sha256:[a-f0-9]{64}$ ]]; then
     echo "${digest}"
     return 0
   fi
 
-  # Fallback: Fetch raw manifest body and calculate SHA256 locally
   local body
-  body=$(curl -sS -fail \
-    "${ACCEPT_HEADERS[@]}" \
-    -H "${AUTH_HEADER}" \
-    "${url}")
+  body=$(curl_auth -sS --fail "${ACCEPT_HEADERS[@]}" "${url}")
+  digest="sha256:$(printf '%s' "${body}" | (sha256sum 2>/dev/null || shasum -a 256) | awk '{print $1}')"
 
-  digest="sha256:$(printf '%s' "${body}" | shasum -a 256 | awk '{print $1}')"
+  if [[ ! "${digest}" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+    echo "[-] ERROR: Failed to resolve valid 64-hex digest for ${tag}" >&2
+    exit 1
+  fi
   echo "${digest}"
 }
 
@@ -613,33 +580,27 @@ subcommand_retag() {
   tmp_manifest=$(mktemp)
   local tmp_headers
   tmp_headers=$(mktemp)
+  trap 'rm -f "${tmp_manifest}" "${tmp_headers}"' EXIT
 
-  # Fetch existing manifest and headers
-  curl -sS -fail \
+  curl_auth -sS --fail \
     "${ACCEPT_HEADERS[@]}" \
-    -H "${AUTH_HEADER}" \
     -D "${tmp_headers}" \
     "${get_url}" -o "${tmp_manifest}"
 
   local content_type
   content_type=$(grep -i '^content-type:' "${tmp_headers}" | head -n1 | awk '{print $2}' | tr -d '\r\n')
-
   if [ -z "${content_type}" ]; then
-    content_type="application/vnd.docker.distribution.manifest.v2+json"
+    content_type="application/vnd.oci.image.manifest.v1+json"
   fi
 
   local put_url="https://${REGISTRY}/v2/${REPOSITORY}/manifests/${dst_tag}"
 
-  # PUT existing manifest directly under destination tag (Zero Rebuild, Zero Container Upload)
   local response_status
-  response_status=$(curl -sS -o /dev/null -w "%{http_code}" \
+  response_status=$(curl_auth -sS -o /dev/null -w "%{http_code}" \
     -X PUT \
-    -H "${AUTH_HEADER}" \
     -H "Content-Type: ${content_type}" \
     --data-binary @"${tmp_manifest}" \
     "${put_url}")
-
-  rm -f "${tmp_manifest}" "${tmp_headers}"
 
   if [ "${response_status}" -ne 201 ] && [ "${response_status}" -ne 200 ]; then
     echo "[-] ERROR: Registry PUT returned HTTP status ${response_status}" >&2
@@ -652,6 +613,11 @@ subcommand_retag() {
 subcommand_verify_digest() {
   local tag="$1"
   local expected_digest="$2"
+
+  if [[ ! "${expected_digest}" =~ ^sha256:[a-f0-9]{64}$ ]]; then
+    echo "[-] ERROR: Expected digest is malformed or empty: '${expected_digest}'" >&2
+    exit 1
+  fi
 
   local actual_digest
   actual_digest=$(subcommand_resolve "${tag}")
@@ -666,7 +632,6 @@ subcommand_verify_digest() {
   echo "[+] Digest verified for ${tag}: ${actual_digest}"
 }
 
-# Main Command Dispatcher
 if [ "$#" -lt 1 ]; then
   usage
 fi
@@ -700,7 +665,7 @@ esac
 ```bash
 #!/usr/bin/env bash
 # ==============================================================================
-# scripts/check-release-tag.sh — Validate the Release Parity Triangle (RP-6)
+# scripts/check-release-tag.sh - Validate the Release Parity Triangle (RP-6)
 # Asserts: git tag == chart/values.yaml (.image.tag) == chart/Chart.yaml (v.appVersion)
 # ==============================================================================
 
@@ -709,7 +674,6 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${REPO_ROOT}"
 
-# 1. Resolve current git tag from environment or git describe
 GIT_TAG="${GITHUB_REF_NAME:-${FORGEJO_REF_NAME:-}}"
 if [ -z "${GIT_TAG}" ]; then
   if git describe --tags --exact-match >/dev/null 2>&1; then
@@ -720,32 +684,26 @@ if [ -z "${GIT_TAG}" ]; then
   fi
 fi
 
-# 2. Extract values.yaml declared image tag
 VALUES_TAG=$(yq -r '.image.tag' chart/values.yaml)
 VALUES_DIGEST=$(yq -r '.image.digest' chart/values.yaml)
 VALUES_BUILD=$(yq -r '.image.build' chart/values.yaml)
 
-# 3. Extract Chart.yaml appVersion metadata
 CHART_APP_VER="v$(yq -r '.appVersion' chart/Chart.yaml)"
 CHART_VER="v$(yq -r '.version' chart/Chart.yaml)"
 
 echo "[*] Verifying Release Parity Triangle for Vitki..."
-echo "    ------------------------------------------------"
 echo "    Git Ref Tag:         ${GIT_TAG}"
 echo "    values.yaml Tag:     ${VALUES_TAG}"
 echo "    Chart.yaml appVer:   ${CHART_APP_VER}"
 echo "    Chart.yaml version:  ${CHART_VER}"
 echo "    Pinned Digest:       ${VALUES_DIGEST}"
 echo "    Ingress Build ID:    ${VALUES_BUILD}"
-echo "    ------------------------------------------------"
 
-# 4. Assert SemVer syntax compliance
 if [[ ! "${GIT_TAG}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.]+)?$ ]]; then
   echo "[-] ERROR: Git tag '${GIT_TAG}' violates SemVer specification (must match ^vX.Y.Z)" >&2
   exit 1
 fi
 
-# 5. Assert strict equality across the Parity Triangle
 FAILED=0
 
 if [ "${GIT_TAG}" != "${VALUES_TAG}" ]; then
@@ -758,18 +716,16 @@ if [ "${GIT_TAG}" != "${CHART_APP_VER}" ]; then
   FAILED=1
 fi
 
-if [ "${VALUES_TAG}" != "${CHART_APP_VER}" ]; then
-  echo "[-] MISMATCH: values.yaml image.tag (${VALUES_TAG}) != Chart.yaml appVersion (${CHART_APP_VER})" >&2
+if [ "${GIT_TAG}" != "${CHART_VER}" ]; then
+  echo "[-] MISMATCH: Git tag (${GIT_TAG}) != Chart.yaml version (${CHART_VER})" >&2
   FAILED=1
 fi
 
-# 6. Assert digest presence and syntax
 if [[ ! "${VALUES_DIGEST}" =~ ^sha256:[a-f0-9]{64}$ ]]; then
   echo "[-] ERROR: values.yaml image.digest is missing or invalid: '${VALUES_DIGEST}'" >&2
   FAILED=1
 fi
 
-# 7. Assert build ID presence
 if [[ ! "${VALUES_BUILD}" =~ ^b[0-9]+$ ]]; then
   echo "[-] ERROR: values.yaml image.build is missing or invalid: '${VALUES_BUILD}'" >&2
   FAILED=1
@@ -790,7 +746,7 @@ echo "[+] PASS: Release Parity Triangle verified. All metadata coordinates in lo
 ```bash
 #!/usr/bin/env bash
 # ==============================================================================
-# scripts/check-release-source-parity.sh — Enforce Zero Source Drift (RP-5)
+# scripts/check-release-source-parity.sh - Enforce Zero Source Drift (RP-5)
 # Asserts that a release PR modifies ONLY deployment manifests and changelogs.
 # ==============================================================================
 
@@ -801,14 +757,12 @@ cd "${REPO_ROOT}"
 
 TARGET_BASE="${TARGET_BASE:-origin/main}"
 
-# Ensure base reference exists
 if ! git rev-parse --verify "${TARGET_BASE}" >/dev/null 2>&1; then
   TARGET_BASE="main"
 fi
 
 echo "[*] Checking source parity against base: ${TARGET_BASE}..."
 
-# Enumerate all files modified between current HEAD and target base branch
 MODIFIED_FILES=$(git diff --name-only "${TARGET_BASE}...HEAD")
 
 if [ -z "${MODIFIED_FILES}" ]; then
@@ -816,8 +770,6 @@ if [ -z "${MODIFIED_FILES}" ]; then
   exit 0
 fi
 
-# Permitted whitelist regex:
-# Only chart definitions, CHANGELOG updates, and documentation runbooks are allowed in release PRs.
 PERMITTED_PATTERN='^(chart/(Chart\.yaml|values\.yaml)|CHANGELOG\.md|docs/runbooks/release\.md)$'
 
 FORBIDDEN_DIFFS=()
@@ -834,22 +786,19 @@ if [ "${#FORBIDDEN_DIFFS[@]}" -gt 0 ]; then
   for forbidden in "${FORBIDDEN_DIFFS[@]}"; do
     echo "      ! ${forbidden}" >&2
   done
-  echo "" >&2
-  echo "    RP-5 Violation: Application code changes MUST be merged to main via standard PRs" >&2
-  echo "    and produce an ingress build b<N> before release promotion." >&2
+  echo "    RP-5 Violation: Application code changes MUST merge to main and produce :b<N> first." >&2
   exit 1
 fi
 
 echo "[+] PASS: Zero application source drift proven."
-echo "    Modified release files:"
-echo "${MODIFIED_FILES}" | sed 's/^/      ✓ /'
+echo "${MODIFIED_FILES}" | sed 's/^/      ok /'
 ```
 
 ---
 
 ## 4. Declarative GitOps Specifications (`nate/norns-gitops`)
 
-Vitki's deployment lifecycle is entirely governed by Argo CD declarative Application Custom Resources stored in the separate GitOps repository (`nate/norns-gitops`). Application source code and cluster state repositories are decoupled, preventing deployment state mutations from triggering recursive source builds.
+Application source code (`nate/vitki`) and cluster desired state (`nate/norns-gitops`) live in separate repositories. In-cluster Argo CD on `Norns` pulls from `norns-gitops` and reconciles the workloads.
 
 ### Production Application CR (`clusters/norns/applications/vitki.yaml`)
 
@@ -868,11 +817,11 @@ spec:
   project: default
   source:
     repoURL: https://forgejo.ravenhelm.dev/nate/vitki.git
-    targetRevision: v1.4.2 # Strictly pinned to formal release tag
+    targetRevision: v1.4.2
     path: chart
     helm:
       valueFiles:
-        - values.yaml # Production values containing pinned digest
+        - values.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: vitki
@@ -908,11 +857,11 @@ spec:
   project: default
   source:
     repoURL: https://forgejo.ravenhelm.dev/nate/vitki.git
-    targetRevision: main # Follows main branch directly
+    targetRevision: main
     path: chart
     helm:
       valueFiles:
-        - values-uat.yaml # Staging values tracking moving :uat tag
+        - values-uat.yaml
   destination:
     server: https://kubernetes.default.svc
     namespace: vitki-uat
@@ -928,11 +877,7 @@ spec:
 
 ## 5. Ingress and Release CI/CD Workflows (`.forgejo/workflows/`)
 
-Vitki implements two distinct CI/CD workflows inside `.forgejo/workflows/` (or GitHub Actions) to enforce the separation between continuous integration (ingress) and release promotion.
-
 ### Ingress Build Workflow (`.forgejo/workflows/build.yml`)
-
-The ingress workflow triggers on every merge to `main`. It compiles the binary once, packages the OCI image, and pushes three tags (`:b<N>`, `:sha-<commit12>`, and `:uat`) with an identical SHA256 digest to Harbor:
 
 ```yaml
 name: Ingress Build
@@ -942,47 +887,57 @@ on:
     branches:
       - main
     paths-ignore:
+      - "chart/**"
       - "docs/**"
       - "**.md"
+      - "CHANGELOG.md"
 
 jobs:
   build-and-push:
-    runs-on: [self-hosted, linux-x64]
+    runs-on: [self-hosted, eikthyrnir]
+    timeout-minutes: 20
     steps:
       - name: Checkout Source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
 
       - name: Calculate Monotonic Build Sequence
         id: build_id
         run: |
+          set -euo pipefail
           BUILD_NUM="${{ github.run_number }}"
-          echo "id=b${BUILD_NUM}" >> $GITHUB_OUTPUT
-          echo "commit=$(git rev-parse --short=12 HEAD)" >> $GITHUB_OUTPUT
+          echo "id=b${BUILD_NUM}" >> "$GITHUB_OUTPUT"
+          echo "commit=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Log in to Harbor OCI Registry
-        uses: docker/login-action@v3
-        with:
-          registry: harbor.ravenhelm.dev
-          username: ${{ secrets.HARBOR_ROBOT_USER }}
-          password: ${{ secrets.HARBOR_ROBOT_SECRET }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Log in to Internal Harbor Bypass
+        env:
+          HARBOR_USER: ${{ secrets.HARBOR_ROBOT_USER }}
+          HARBOR_SECRET: ${{ secrets.HARBOR_ROBOT_SECRET }}
+        run: |
+          printf '%s\n' "$HARBOR_SECRET" | podman login harbor-nginx.lan:8443 \
+            --username "$HARBOR_USER" \
+            --password-stdin
 
       - name: Build and Push Image (Builds Are the Unit)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: |
-            harbor.ravenhelm.dev/platform/vitki:${{ steps.build_id.outputs.id }}
-            harbor.ravenhelm.dev/platform/vitki:sha-${{ steps.build_id.outputs.commit }}
-            harbor.ravenhelm.dev/platform/vitki:uat
+        run: |
+          set -euo pipefail
+          REPO="harbor-nginx.lan:8443/platform/vitki"
+          BUILD_ID="${{ steps.build_id.outputs.id }}"
+          COMMIT="${{ steps.build_id.outputs.commit }}"
+
+          podman build --format oci \
+            -t "${REPO}:${BUILD_ID}" \
+            -t "${REPO}:sha-${COMMIT}" \
+            -t "${REPO}:uat" .
+
+          podman push "${REPO}:${BUILD_ID}"
+          podman push "${REPO}:sha-${COMMIT}"
+          podman push "${REPO}:uat"
 ```
 
 ### Release Promotion Workflow (`.forgejo/workflows/release.yml`)
-
-The release workflow triggers on git tag pushes (`v*`). Crucially, **it never compiles source code or rebuilds images**. It verifies the Parity Triangle and invokes `harbor-artifact.sh retag` to apply the release tag to the existing digest:
 
 ```yaml
 name: Release Promotion
@@ -994,31 +949,34 @@ on:
 
 jobs:
   verify-and-retag:
-    runs-on: [self-hosted, linux-x64]
+    runs-on: [self-hosted, eikthyrnir]
+    timeout-minutes: 10
     steps:
       - name: Checkout Release Tag
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Assert Release Parity Triangle
+      - name: Assert Release Parity Triangle & Zero Source Drift
         run: |
           ./scripts/check-release-tag.sh
+          git fetch origin main:refs/remotes/origin/main
+          TARGET_BASE="origin/main" ./scripts/check-release-source-parity.sh
 
       - name: Retag Ingress Build to Release Name in Harbor
         env:
+          HARBOR_REGISTRY: "harbor-nginx.lan:8443"
           HARBOR_ROBOT_USER: ${{ secrets.HARBOR_ROBOT_USER }}
           HARBOR_ROBOT_SECRET: ${{ secrets.HARBOR_ROBOT_SECRET }}
         run: |
+          set -euo pipefail
           BUILD_ID=$(yq -r '.image.build' chart/values.yaml)
           RELEASE_TAG="${{ github.ref_name }}"
-          ./scripts/harbor-artifact.sh retag "${BUILD_ID}" "${RELEASE_TAG}"
-
-      - name: Verify Harbor Digest Matches Pinned Manifest
-        env:
-          HARBOR_ROBOT_USER: ${{ secrets.HARBOR_ROBOT_USER }}
-          HARBOR_ROBOT_SECRET: ${{ secrets.HARBOR_ROBOT_SECRET }}
-        run: |
-          RELEASE_TAG="${{ github.ref_name }}"
           PINNED_DIGEST=$(yq -r '.image.digest' chart/values.yaml)
+
+          ./scripts/harbor-artifact.sh verify-digest "${BUILD_ID}" "${PINNED_DIGEST}"
+          ./scripts/harbor-artifact.sh retag "${BUILD_ID}" "${RELEASE_TAG}"
           ./scripts/harbor-artifact.sh verify-digest "${RELEASE_TAG}" "${PINNED_DIGEST}"
 ```
 
@@ -1026,12 +984,9 @@ jobs:
 
 ## 6. How Vitki Proves RROM Principles
 
-The Vitki reference architecture provides empirical proof for each of the core RROM principles:
-
-1. **Builds Are the Unit, Releases Are Names (ADR-0007 / RP-1):** Ingress CI generates `harbor.ravenhelm.dev/platform/vitki:b42`. The release ceremony merely executes an OCI registry pointer update to alias `v1.4.2` to that exact manifest digest.
-2. **Digest Pinning Above All (RP-2):** `chart/templates/deployment.yaml` renders `image: ...@sha256:...`. Even if registry tags are accidentally overwritten, cluster pods cannot pull divergent layers.
-3. **Parity Precedes Promotion (RP-5):** `scripts/check-release-source-parity.sh` guarantees that the release commit contains zero modifications to application source files.
-4. **The Parity Triangle (RP-6):** `scripts/check-release-tag.sh` mathematically verifies that the git tag, Helm chart version, and values tag match before Harbor retagging is authorized.
-5. **Multi-Stream Ingress (RP-9):** UAT continuously tracks `:uat` on NodePort 30109, while production converges on pinned digests on NodePort 30108 without operational interference.
+1. **Builds Are the Unit; Releases Are Names (`ADR-0007` / `RP-1`, `RP-2`):** `build.yml` compiles once on merge to `main` and emits `harbor.ravenhelm.dev/platform/vitki:b42`. `release.yml` runs zero compilers and promotes `:b42` to `:v1.4.2` via a single Registry v2 `PUT`.
+2. **Tags for Humans, Digests for Runtime (`RP-4`):** `chart/templates/deployment.yaml` renders `image: ...:v1.4.2@sha256:7f9a...`. Even if a tag were mutated, the `Norns` kubelet pulls by immutable SHA-256 digest.
+3. **Parity Precedes Promotion (`RP-5`, `RP-6`):** `scripts/check-release-source-parity.sh` and `scripts/check-release-tag.sh` reject any release PR or tag that modifies source files or lets the Git tag, `Chart.yaml`, and `values.yaml` drift apart.
+4. **Falsifiable Digest Guards (`RAV-2079`):** Every script asserts `[[ "${DIGEST}" =~ ^sha256:[a-f0-9]{64}$ ]]` before comparing strings, ensuring an empty response or missing CLI tool fails closed immediately.
 
 <!-- RUBRIC_CHECK: Appendix B conforms to RROM specification. -->

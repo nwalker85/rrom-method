@@ -1,60 +1,61 @@
 # Chapter 8: The Tiered Adoption Ladder
 
-<!-- LICENSE: RROM Community License 1.0 (c) 2026 Ravenhelm LLC -->
+<!-- LICENSE: © 2026 Ravenhelm LLC. Licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Attribution required: "Ravenhelm LLC — Ravenhelm Release Operations Methodology (RROM), https://ravenhelm.dev". -->
 
 ## Four Maturity Tiers of Release Operations
 
-Just as the Ravenhelm Linear Operations Methodology (RLOM) defines an honest tiering ladder for project coordination—recognizing that a two-person startup requires different governance than a regulated hundred-engineer platform—the Ravenhelm Release Operations Methodology (RROM) structures release operations across four maturity tiers.
+When `jarvis.ravenhelm.dev` started throwing HTTP 502 Bad Gateway errors on `odin`, the first debugging session burned an hour restarting the wrong container stack because two separate `docker-compose.yml` files sat in sibling directories on the host (`jarvis-502-wrong-compose`). Around the same time, `freyr-api` was running in production pinned to a mutable `:latest` tag; every time a background image watcher polled the registry after an unverified merge, production silently rolled itself onto whatever bits had just finished compiling on `main`. There was no digest pin, no release PR, and no rollback target.
 
-Engineering organizations frequently stumble into one of two operational traps:
+Every engineering estate starts in that mud. You stand up a single box (`odin` or `hrafngud`), run `docker compose up -d`, and ship by SSHing in or letting a webhook rebuild `:latest`. The mistake is either staying in Tier 0 until fifty services are colliding on unpinned tags, or swinging to the opposite extreme (the Hal Problem: rewiring the entire house to change a lightbulb by trying to stand up hardware-token MFAA elevation and three-node K3s GitOps before shipping a single service).
 
-1. **The Premature Bureaucracy Trap:** A seed-stage startup attempts to install full zero-trust action-hash elevation, multi-cloud cryptographic attestation, and distributed multi-cluster GitOps on day one, paralyzing feature velocity under the weight of ceremonies they do not yet need.
-2. **The Fragile Scaled Monolith Trap:** A growth-stage company with fifty engineers continues to rely on ad-hoc shell scripts, unpinned container tags, and compilation triggered at tag time, experiencing weekly production outages and mystery regressions caused by silent dependency drift.
-
-RROM solves this dichotomy through a progressive, value-driven adoption ladder. Each tier addresses concrete operational pain points, introduces specific technical capabilities, establishes rigorous governance gates, and unlocks unambiguous reliability guarantees.
+Just as the Ravenhelm Linear Operations Methodology (RLOM) scales work tracking from a solo workbench to a multi-contract enterprise, the Ravenhelm Release Operations Methodology (RROM) climbs a four-tier physical custody ladder. In the Ravenhelm estate, **Project Factory** encodes these tiers directly into repository scaffolding so new services inherit the right release machinery on day one.
 
 | Maturity Tier | Organizational Scale | Core Capability & Milestone Invariant |
 | :--- | :--- | :--- |
 | **Tier 1: Artifact Discipline** | 1 to 3 Engineers | Build once on merge to `main`; monotonic build sequence (`:b<N>`); zero tag-time compilation. |
-| **Tier 2: Registry & Digest Locking** | 4 to 12 Engineers | Triple-tagging scheme; mandatory `@sha256:...` digest pinning; automated source-parity checks. |
-| **Tier 3: Multi-Rail Declarative GitOps** | 13 to 50 Engineers | Sole-authority GitOps (Argo CD); Rail A/B synchronization; sandboxed formula inreplace. |
-| **Tier 4: Sovereign Zero-Trust Delivery** | 50+ Engineers | Hard blast radius partitioning; action-hash elevation (Valkyrie MFAA); signed Ed25519 OTA. |
+| **Tier 2: Registry & Digest Locking** | 4 to 12 Engineers | Triple-tagging in Harbor; mandatory `@sha256:...` digest pinning; automated source-parity checks. |
+| **Tier 3: Multi-Rail Declarative GitOps** | 13 to 50 Engineers | Sole-authority GitOps (`norns-gitops` / Argo CD); Rail A + Rail B lockstep; sandboxed formula `inreplace`. |
+| **Tier 4: Sovereign Zero-Trust Delivery** | 50+ Engineers | Hard blast-radius partitioning; Action-Hash Elevation (Valkyrie MFAA); signed Ed25519 desktop OTA. |
 
 ---
 
 ## Tier 1: Artifact Discipline (The Solo Developer / Free Tier)
 
-**Core Focus:** Terminate tag-time compilation and establish the build as the immutable physical unit of delivery.
+**Core Focus:** Kill tag-time compilation and establish the `:b<N>` build as the immutable physical unit of delivery.
 
 ### 1. Target Organization Profile & Team Scale
-* **Team Size:** 1 to 3 engineers.
-* **Architecture:** Single monolithic service or lightweight service pair, distributed as Docker containers or standalone binaries.
-* **Infrastructure:** Single cloud virtual machine, lightweight VPS, or managed container runner (e.g., Docker Compose on a single node, Render, Fly.io, or basic Hetzner box).
-* **Release Cadence:** Daily or weekly ad-hoc releases driven by the founder or primary maintainer.
+- **Team Size:** 1 to 3 engineers.
+- **Architecture:** Single service or small daemon pair running in containers or standalone binaries.
+- **Infrastructure:** Single bare-metal host or VM (like early `odin` or `hrafngud`) running a single canonical Docker Compose project or systemd unit.
+- **Release Cadence:** Daily or weekly releases driven by the primary builder.
 
 ### 2. Pain Points & Ceilings Hit
-Organizations at Tier 0 (the unmanaged baseline) suffer from the universal disease of **tag-time rebuilding**:
-* **The "It Worked in Staging" Paradox:** A pull request is merged into `main`, tested in a staging environment, and approved. Days later, an engineer runs `git tag v1.0.4 && git push --tags`. The CI runner compiles the application from scratch under the tag ref. In the intervening days, an unpinned transitive npm package, Go module, or Alpine Linux base mirror published a minor patch that silently breaks production runtime initialization.
-* **Digest Amnesia:** The container image running in staging has SHA-256 digest `aaa...`, while the container image deployed to production has digest `bbb...`. Staging logs and performance profiles are legally and operationally useless for debugging production incidents because the bits running in production were never tested.
-* **Brittle Release Cycles:** Cutting a release takes 25 minutes of high-risk compilation in CI. If a third-party dependency mirror flakes during tag compilation, the release fails halfway through deployment, leaving the engineer stranded in an indeterminate state.
+
+Tier 0 (the unmanaged baseline) dies from two self-inflicted wounds: **tag-time rebuilding** and **`:latest` auto-rolling**:
+- **The "It Worked in Staging" Lie:** A PR merges to `main`, builds a staging container, and passes manual checks. Three days later, someone runs `git tag v1.0.4 && git push --tags`. The CI runner executes `docker build` all over again under the tag ref, pulls a newly published transitive package or Alpine base layer, and ships a binary that never ran a single minute in staging.
+- **The `freyr-api :latest` Trap:** Pointing a production stack at `:latest` turns every trunk merge into an unannounced production deploy and leaves you with zero prior digest to revert to when the new build crashes on startup.
+- **25-Minute Release Anxiety:** When cutting a release requires a full compile, a flaky npm or crates.io mirror mid-tag leaves the release half-shipped.
 
 ### 3. Complete Technical Stack & Tooling Requirements
-* **Code Host & CI:** GitHub Actions or Forgejo Actions.
-* **Container Registry:** Standard public or private OCI registry with basic token authentication (GitHub Container Registry `ghcr.io`, Docker Hub, or basic self-hosted Forgejo container registry).
-* **Runtime Orchestration:** Docker Compose v2, systemd-managed Podman containers, or single-node container runtime.
-* **CLI Tooling:** Standard `bash`, `docker`, and `git`.
+- **Code Host & CI:** Forgejo Actions or GitHub Actions.
+- **Container Registry:** Harbor (`harbor.ravenhelm.dev`), GHCR (`ghcr.io`), or Forgejo's built-in OCI registry.
+- **Runtime Orchestration:** Docker Compose v2 (from a single canonical path enforced by repo deployment workflows, never edited via manual SSH).
+- **CLI Tooling:** `bash`, `docker`, and `git`.
 
 ### 4. Implementation Playbook
-Migrating an existing repository from Tier 0 to Tier 1 requires four concrete steps:
 
-#### Step 1: Dissect the Existing Monolithic CI Pipeline
-Delete all triggers that execute compilation on tag push. Split `.github/workflows/ci.yml` or `.forgejo/workflows/ci.yml` into two decoupled workflow files: `build.yml` (triggered exclusively on trunk merges) and `release.yml` (triggered on tag push).
+Moving a repository from Tier 0 to Tier 1 takes four edits:
+
+#### Step 1: Split Build from Release
+
+Delete every `docker build`, `cargo build`, or `npm run build` step from tag-triggered workflows. Split CI into two separate files: `build.yml` (triggered exclusively on push to `main`) and `release.yml` (triggered on `v*` tag pushes).
 
 #### Step 2: Establish Ingress Build Pipeline on `main`
-Configure `build.yml` to compile the artifact on merge to `main`, compute a sequential build number, and publish the artifact:
+
+Configure `build.yml` to compile the artifact once on merge to `main`, stamp the monotonic build ID `:b<N>`, and push to the registry:
 
 ```yaml
-# .github/workflows/build.yml
+# .forgejo/workflows/build.yml
 name: Ingress Build
 on:
   push:
@@ -72,21 +73,22 @@ jobs:
       - name: Build Container Image
         run: |
           docker build \
-            --tag ghcr.io/org/service:${{ steps.build_id.outputs.build_number }} \
-            --tag ghcr.io/org/service:latest \
+            --tag harbor.ravenhelm.dev/platform/service:${{ steps.build_id.outputs.build_number }} \
+            --tag harbor.ravenhelm.dev/platform/service:uat \
             .
 
       - name: Publish to Registry
         run: |
-          docker push ghcr.io/org/service:${{ steps.build_id.outputs.build_number }}
-          docker push ghcr.io/org/service:latest
+          docker push harbor.ravenhelm.dev/platform/service:${{ steps.build_id.outputs.build_number }}
+          docker push harbor.ravenhelm.dev/platform/service:uat
 ```
 
 #### Step 3: Implement Zero-Compilation Release Retagging
-Configure `release.yml` to trigger on tags matching `v*`. The release workflow is forbidden from invoking `docker build`, `cargo build`, `go build`, or `npm run build`. Its sole purpose is to pull the existing `:latest` (or target `:b<N>`) image and append the Semantic Versioning tag:
+
+Configure `release.yml` to trigger on `v*` tags. It never invokes a compiler; it simply retags the proven `:b<N>` image:
 
 ```yaml
-# .github/workflows/release.yml
+# .forgejo/workflows/release.yml
 name: Release Promotion
 on:
   push:
@@ -107,50 +109,53 @@ jobs:
       - name: Retag Existing Build Digest
         run: |
           # Pull existing verified build - zero compilation permitted
-          docker pull ghcr.io/org/service:latest
-          docker tag ghcr.io/org/service:latest ghcr.io/org/service:${{ github.ref_name }}
-          docker push ghcr.io/org/service:${{ github.ref_name }}
+          docker pull harbor.ravenhelm.dev/platform/service:uat
+          docker tag harbor.ravenhelm.dev/platform/service:uat harbor.ravenhelm.dev/platform/service:${{ github.ref_name }}
+          docker push harbor.ravenhelm.dev/platform/service:${{ github.ref_name }}
 ```
 
-#### Step 4: Simple Tag-Source Parity Verification
-Add a pre-flight assertion script (`scripts/verify-release-tag.sh`) that ensures the tag pushed to git matches the version string in the project's package manifest (`package.json`, `Cargo.toml`, or `pyproject.toml`).
+#### Step 4: Verify Tag-Manifest Alignment
+
+Add a pre-flight check (`scripts/check-release-tag.sh`) that verifies the pushed git tag matches the version pinned in the deployment manifest before retagging.
 
 ### 5. Governance & Verification Gates
-* **Gate 1.1 (No Compiler in Release):** The release pipeline environment must not contain build SDKs or compilation toolchains. If a release workflow attempts to execute a compiler, the workflow fails.
-* **Gate 1.2 (Tag Format Compliance):** Tags must strictly adhere to Semantic Versioning (`vX.Y.Z`). Arbitrary strings like `test-release` or `prod-fix` are rejected by CI pre-flight validation.
-* **Gate 1.3 (Target Existence Proof):** The release retagging step must fail closed if the referenced build artifact does not already exist in the registry.
+- **Gate 1.1 (No Compiler in `release.yml`):** Release workflows contain zero build steps.
+- **Gate 1.2 (No `:latest` in Prod):** Production compose files and manifests are forbidden from referencing `:latest` or `:uat`.
+- **Gate 1.3 (Target Existence Proof):** Retagging fails closed if the target `:b<N>` image does not already exist in the registry.
 
 ### 6. Operational Guarantees Unlocked
-* **Zero-Rebuild Guarantee:** Code running under `v1.2.0` in production is bit-for-bit identical to the code that was tested on `main`.
-* **Instantaneous Release Cycle:** Cutting a production release drops from 25 minutes of compilation to under 30 seconds of registry metadata retagging.
-* **Immutability of Build History:** Every merge to `main` produces an immutable, numbered artifact (`:b104`, `:b105`) that can be audited or deployed independently.
+- **Zero-Rebuild Guarantee:** The bits running under `v1.2.0` in production are the exact bits compiled on `main`.
+- **Sub-30-Second Naming:** Promoting a release takes seconds of registry API calls instead of 20 minutes of compilation.
+- **Numbered Build Ledger:** Every merge to `main` leaves an immutable `:b<N>` receipt in the registry.
 
 ---
 
 ## Tier 2: Registry & Digest Locking (The Growing Startup)
 
-**Core Focus:** Eliminate mutable tag vulnerabilities, enforce three-way version parity, and prevent unauthorized source drift during releases.
+**Core Focus:** Eliminate mutable tag poisoning, enforce three-way version parity, and block source-code smuggling on release branches.
 
 ### 1. Target Organization Profile & Team Scale
-* **Team Size:** 4 to 15 engineers.
-* **Architecture:** Multi-service backend (3 to 10 services), modular monolith with background workers, shared Redis/PostgreSQL clusters.
-* **Infrastructure:** Dedicated staging (UAT) and production environments hosted on managed Kubernetes (EKS, GKE, K3s) or multi-host Docker Compose clusters.
-* **Release Cadence:** Multiple daily trunk merges; scheduled or on-demand production releases (1 to 5 releases per week).
+- **Team Size:** 4 to 15 engineers (or a supervisor managing multiple concurrent AI coding slices).
+- **Architecture:** Multi-service backend (5 to 20 services), shared PostgreSQL (`ravenmaskos`), ClickHouse (`vakr`), and NATS JetStream infrastructure.
+- **Infrastructure:** Dedicated staging (UAT) and production namespaces with Harbor (`harbor.ravenhelm.dev`) serving as the central OCI registry.
+- **Release Cadence:** Dozens of daily trunk merges across concurrent worktrees; multiple production promotions per day.
 
 ### 2. Pain Points & Ceilings Hit
-While Tier 1 prevents tag-time rebuilds, teams scaling past 4 engineers hit new structural ceilings:
-* **Tag Overwriting & Poisoning:** Using mutable tags like `:latest` or `:v1.2.0` creates race conditions. If an engineer accidentally pushes an image with an existing tag, the container runtime pulls the new image without any record of the change in version control.
-* **The "Release Branch Code Smuggle":** An engineer creating a release branch to bump the version string inadvertently fixes a "minor typo" or tweaks an environment variable directly on the release branch. Because the release branch is tagged, unverified, unreviewed code bypasses trunk testing and enters production.
-* **Staging Stream Collision:** Multiple engineers merging PRs to `main` overwrite the staging environment unpredictably. Without monotonic build tracking and triple-tagging, engineers cannot determine which specific PR is currently running in UAT.
+
+Once multiple engineers or agent slices merge concurrently, Tier 1's tag-only promotion breaks down:
+- **The Moving `:uat` Race:** While Operator A is preparing to promote build `b42`, Slice B merges a new PR to `main`, advancing `:uat` to `b43`. If `release.yml` blindly retags `:uat`, Operator A accidentally promotes `b43` under `v1.4.2` without testing it.
+- **The Release-Branch Code Smuggle:** An engineer cutting a release branch edits a `.ts` or `.rs` file on the release PR "just to fix a small bug." Because compilation only runs at Ingress on `main`, that source edit is never compiled into the container image, leaving git history and the running container out of sync.
+- **Mutable Tag Overwrites:** Without `@sha256:` digest locking in deployment manifests, force-pushing a tag in the registry silently alters what nodes pull on restart.
 
 ### 3. Complete Technical Stack & Tooling Requirements
-* **Code Host & CI:** Forgejo or GitHub Enterprise with branch protection rules enforcing status checks and mandatory PR reviews.
-* **OCI Registry:** Self-hosted Harbor or enterprise managed OCI registry (AWS ECR, GCP Artifact Registry) supporting Registry v2 APIs, immutable tag rules, and webhook notifications.
-* **Configuration Management:** Helm 3 charts or structured Docker Compose stacks with templated values.
-* **Automation Tooling:** `yq` v4, `jq`, `curl`, and standard bash automation scripts (`scripts/release-pr.sh`, `scripts/check-release-source-parity.sh`, `scripts/check-release-tag.sh`, `scripts/harbor-artifact.sh`).
+- **Code Host & CI:** Forgejo (`git.ravenhelm.dev`) or GitHub with branch protection and required CI status checks.
+- **OCI Registry:** Harbor (`harbor.ravenhelm.dev`) with Registry v2 API access and tag immutability rules.
+- **Configuration Management:** Helm 3 charts (`chart/Chart.yaml`, `chart/values.yaml`) scaffolded via **Project Factory**.
+- **Automation Tooling:** `yq` v4, `jq`, `curl`, and the four canonical RROM scripts (`scripts/release-pr.sh`, `scripts/check-release-source-parity.sh`, `scripts/check-release-tag.sh`, `scripts/harbor-artifact.sh`).
 
 ### 4. Implementation Playbook
-Upgrading from Tier 1 to Tier 2 introduces the **Triple-Tagging Scheme**, **Automated Release PRs**, and **Mandatory Digest Locking**:
+
+Upgrading from Tier 1 to Tier 2 installs the **Triple-Tagging Scheme**, **Harbor API Digest Resolution**, and **The Source Parity Guard**:
 
 ```text
 [ INGRESS MERGE ]
@@ -160,35 +165,36 @@ Upgrading from Tier 1 to Tier 2 introduces the **Triple-Tagging Scheme**, **Auto
                                │
                                ▼
 [ Release PR Opened ] ───> scripts/release-pr.sh b<N> vX.Y.Z
-                               │  - Resolves @sha256:<digest> from Harbor API
-                               │  - Pins values.yaml to exact digest
+                               │  - Resolves @sha256:<digest> for :b<N> via Harbor API
+                               │  - Pins values.yaml to exact digest + build + commit
                                │  - Asserts zero application source code drift
                                ▼
-[ Release Merged ]   ───> scripts/harbor-artifact.sh retag b<N> vX.Y.Z
+[ Release Merged ]   ───> scripts/harbor-artifact.sh retag sha256:<digest> vX.Y.Z
 ```
 
-#### Step 1: Implement the Triple-Tagging Scheme on Ingress
-Update the build CI pipeline (`.forgejo/workflows/build.yml`) so that every merge to `main` publishes three discrete tags pointing to the exact same image digest:
-1. `:b<N>` — The monotonic, globally ordered build sequence number (e.g., `:b42`).
-2. `:sha-<commit12>` — The 12-character truncated git commit SHA for audit traceability.
-3. `:uat` — The moving pointer consumed by the staging/UAT environment.
+#### Step 1: Implement Triple-Tagging on Ingress
+
+Update `.forgejo/workflows/build.yml` so every merge to `main` pushes three tags pointing to the identical `@sha256:` digest:
+1. `:b<N>` - The monotonic build sequence number (for example, `:b42`).
+2. `:sha-<commit12>` - The 12-character git commit SHA (for example, `:sha-9f8a3c21e01b`).
+3. `:uat` - The rolling staging pointer.
 
 ```bash
-# Ingress publication inside build runner
 COMMIT12=$(echo "${GITHUB_SHA}" | cut -c1-12)
 BUILD_ID="b${BUILD_NUMBER}"
 
-docker tag "${LOCAL_IMAGE}" "harbor.internal/platform/core:${BUILD_ID}"
-docker tag "${LOCAL_IMAGE}" "harbor.internal/platform/core:sha-${COMMIT12}"
-docker tag "${LOCAL_IMAGE}" "harbor.internal/platform/core:uat"
+docker tag "${LOCAL_IMAGE}" "harbor.ravenhelm.dev/platform/core:${BUILD_ID}"
+docker tag "${LOCAL_IMAGE}" "harbor.ravenhelm.dev/platform/core:sha-${COMMIT12}"
+docker tag "${LOCAL_IMAGE}" "harbor.ravenhelm.dev/platform/core:uat"
 
-docker push "harbor.internal/platform/core:${BUILD_ID}"
-docker push "harbor.internal/platform/core:sha-${COMMIT12}"
-docker push "harbor.internal/platform/core:uat"
+docker push "harbor.ravenhelm.dev/platform/core:${BUILD_ID}"
+docker push "harbor.ravenhelm.dev/platform/core:sha-${COMMIT12}"
+docker push "harbor.ravenhelm.dev/platform/core:uat"
 ```
 
-#### Step 2: Enforce Mandatory Digest Pinning in Production Manifests
-Mutable tags are strictly prohibited in production manifests. Every production deployment manifest must explicitly declare the immutable cryptographically secure digest:
+#### Step 2: Lock Production Manifests to `@sha256:` Digests
+
+Every `chart/values.yaml` pins the explicit build number, commit revision, SemVer tag, and immutable SHA-256 digest:
 
 ```yaml
 # chart/values.yaml (Production)
@@ -197,9 +203,10 @@ image:
   tag: v1.4.2
   digest: sha256:7f9a8b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a
   build: b42
+  revision: 9f8a3c21e01b38f87029c2ea55bd51ef350c33a2
 ```
 
-In the Helm deployment template, the pod container specification renders both the human-readable tag and the immutable digest pin:
+And the Kubernetes `Deployment` template binds both tag and digest:
 
 ```yaml
 # chart/templates/deployment.yaml
@@ -208,8 +215,9 @@ containers:
     image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}@{{ .Values.image.digest }}"
 ```
 
-#### Step 3: Implement Automated Release Preparation (`scripts/release-pr.sh`)
-Create `scripts/release-pr.sh` to automate release branch creation. The script takes the candidate build number and desired SemVer tag, queries the registry via the OCI Distribution API to resolve the exact digest, updates configuration metadata, and commits:
+#### Step 3: Automate Release Pinning (`scripts/release-pr.sh`)
+
+Instead of retagging the moving `:uat` pointer, `scripts/release-pr.sh b42 v1.4.2` queries Harbor for the exact digest of `b42`, resolves its `sha-<commit12>` tag, writes the coordinates into `chart/Chart.yaml` and `chart/values.yaml`, and immediately runs the parity check:
 
 ```bash
 #!/usr/bin/env bash
@@ -220,10 +228,10 @@ BUILD="$1"
 TAG="$2"
 SEMVER="${TAG#v}"
 
-# 1. Resolve immutable digest via registry API
-DIGEST=$(scripts/harbor-artifact.sh resolve "${BUILD}")
+# 1. Resolve immutable digest for specific build ID via Harbor API
+DIGEST=$(scripts/harbor-artifact.sh digest "${BUILD}")
 if [[ -z "${DIGEST}" ]]; then
-  echo "ERROR: Build ${BUILD} not found in registry." >&2
+  echo "ERROR: Build ${BUILD} not found in Harbor." >&2
   exit 1
 fi
 
@@ -234,106 +242,98 @@ yq -i ".image.tag = \"${TAG}\"" chart/values.yaml
 yq -i ".image.digest = \"${DIGEST}\"" chart/values.yaml
 yq -i ".image.build = \"${BUILD}\"" chart/values.yaml
 
-# 3. Verify zero source code drift against trunk
-scripts/check-release-source-parity.sh "main"
+# 3. Verify zero source code drift against the build commit
+scripts/check-release-source-parity.sh "${DIGEST}" HEAD
 ```
 
-#### Step 4: The Automated Source Parity Gate (`check-release-source-parity.sh`)
-Create `scripts/check-release-source-parity.sh`. This script computes a `git diff` against the integration trunk, ensuring that the release pull request modifies **only** authorized metadata files (`Chart.yaml`, `values.yaml`, `CHANGELOG.md`):
+#### Step 4: Enforce Source Parity (`check-release-source-parity.sh`)
+
+`scripts/check-release-source-parity.sh` compares the git tree of the commit that built `:b42` against the release branch `HEAD`, rejecting any diff outside `chart/` and `CHANGELOG.md`:
 
 ```bash
 #!/usr/bin/env bash
-# scripts/check-release-source-parity.sh <base-ref>
+# scripts/check-release-source-parity.sh <digest> <tag-commit>
 set -euo pipefail
 
-BASE="${1:-main}"
-CHANGED_FILES=$(git diff --name-only "${BASE}...HEAD")
+BUILD_COMMIT=$(scripts/harbor-artifact.sh build-commit "$1")
+TAG_COMMIT="${2:-HEAD}"
 
-# Define allowed metadata files
-ALLOWED_PATTERN="^(chart/Chart\.yaml|chart/values\.yaml|CHANGELOG\.md|version\.txt)$"
+if ! git diff --quiet "$BUILD_COMMIT" "$TAG_COMMIT" -- . ':(exclude)chart' ':(exclude)CHANGELOG.md'; then
+  echo "REFUSING: release commit modifies application source files since build commit ${BUILD_COMMIT}:" >&2
+  git diff --name-only "$BUILD_COMMIT" "$TAG_COMMIT" -- . ':(exclude)chart' ':(exclude)CHANGELOG.md' >&2
+  exit 1
+fi
 
-for FILE in ${CHANGED_FILES}; do
-  if [[ ! "${FILE}" =~ ${ALLOWED_PATTERN} ]]; then
-    echo "SECURITY ERROR: Release PR modifies unauthorized file: ${FILE}" >&2
-    echo "Release PRs must contain ZERO application source code changes." >&2
-    exit 1
-  fi
-done
-
-echo "SUCCESS: Release source parity verified. Only metadata modified."
+echo "PASS: Source parity verified between ${BUILD_COMMIT} and ${TAG_COMMIT}."
 ```
 
 ### 5. Governance & Verification Gates
-* **Gate 2.1 (The Source Parity Gate):** CI rejects any release PR modifying `.rs`, `.go`, `.ts`, `.py`, `.c`, or `.sql` files. Releases cannot smuggle logic changes.
-* **Gate 2.2 (The Three-Way Release Tag Gate):** When the release PR is merged and tagged, `scripts/check-release-tag.sh` verifies exact cryptographic equality:
-  ```text
-  git tag (v1.4.2) == chart/values.yaml (.image.tag) == chart/Chart.yaml (.appVersion)
-  ```
-* **Gate 2.3 (Registry Tag Immutability):** The OCI registry (Harbor) enforces immutable tag policies on all SemVer tags (`v*`) and build tags (`b*`). Retagging an existing tag with different content is rejected at the registry API layer.
+- **Gate 2.1 (The Source Parity Gate):** CI blocks any release PR that touches `.rs`, `.go`, `.ts`, `.py`, `.sql`, or dependency manifests (`Cargo.toml`, `package.json`).
+- **Gate 2.2 (The Three-Way Tag Gate):** `scripts/check-release-tag.sh` verifies `git tag == values.yaml (.image.tag) == "v" + Chart.yaml (.version)`.
+- **Gate 2.3 (Harbor Tag Immutability):** `scripts/harbor-artifact.sh retag` checks via `HEAD /v2/.../manifests/<tag>` before writing and refuses to overwrite an existing tag pointing to a different digest.
 
 ### 6. Operational Guarantees Unlocked
-* **Tamper-Proof Deployments:** Digest locking guarantees that Kubernetes or Docker pulls the exact verified binary even if DNS is hijacked or registry tags are mutated.
-* **Audit Trail Parity:** The running digest in production maps directly to the specific build ID (`b42`), which maps directly to the merge commit SHA on `main`.
-* **Zero Accidental Code Drift:** Release engineers cannot inadvertently alter business logic while cutting a release.
+- **Race-Free Promotion:** Even if ten commits land on `main` while `b42` is soaking in UAT, `release-pr.sh b42 v1.4.2` promotes `b42` by its exact digest, never what happens to sit at `HEAD`.
+- **Cryptographic Lineage:** Every running pod's `@sha256:` digest traces directly back to `:b<N>` and `:sha-<commit12>`.
+- **Zero Uncompiled Code:** No source change can ever slip into a release tag without first passing through an ingress build.
 
 ---
 
 ## Tier 3: Multi-Rail Declarative GitOps (The Scaling Team)
 
-**Core Focus:** Establish GitOps as the sole applying authority, enforce dual-rail synchronization across backends and developer tooling, and eliminate cluster credentials from operator workstations.
+**Core Focus:** Establish Argo CD (`norns-gitops`) as the sole applying cluster authority, synchronize Rail A (K3s cluster) and Rail B (Homebrew workstation tools), and eliminate dirty-laptop cluster applies.
 
 ### 1. Target Organization Profile & Team Scale
-* **Team Size:** 15 to 75 engineers across multiple squads (Platform, Core Backend, Product, Infrastructure).
-* **Architecture:** Distributed microservices on Kubernetes, event-driven pipelines, alongside internal developer CLI/TUI tools distributed to engineers' macOS/Linux laptops.
-* **Infrastructure:** Highly available Kubernetes clusters (e.g., K3s, EKS, Talos) managed declaratively, separate GitOps configuration repository (`norns-gitops`), private Homebrew tap (`nate/tools`).
-* **Release Cadence:** Continuous deployment of candidate builds to staging; daily coordinated production releases spanning server workloads and developer workstation tools.
+- **Team Size:** 15 to 75 engineers (or a full multi-slice autonomous fleet supervised across platforms and products).
+- **Architecture:** Microservices running on the 3-node `Norns` HA K3s cluster (`urd`, `verdandi`, `skuld`) paired with native Rust and Go developer CLIs/TUIs (`Ullr`, `Yager`, `Doom`) on operator workstations.
+- **Infrastructure:** `Norns` K3s cluster reconciled by Argo CD from `nate/norns-gitops`, Harbor storing both OCI container images and OCI Helm charts, and the private Homebrew tap (`nate/homebrew-tools`).
+- **Release Cadence:** Continuous UAT rollouts on every merge; daily coordinated multi-rail releases.
 
 ### 2. Pain Points & Ceilings Hit
-At this scale, teams experience severe **surface divergence** and **operational drift**:
-* **The "Dirty Laptop Apply" Syndrome:** Engineers or operations staff possess `cluster-admin` kubeconfigs on their laptops. During an emergency or routine update, someone runs `helm upgrade --set image.tag=v1.3.1` or `kubectl apply -f manual-patch.yaml`. The running cluster state silently diverges from git. When CI reconciles the next day, the manual patch is obliterated, causing a secondary outage.
-* **Multi-Surface Protocol Drift (Rail A vs. Rail B Divergence):** The platform team ships an update to a backend gRPC service (Rail A: Kubernetes workload) that alters API field numbers. A developer running a local CLI or diagnostic tool (Rail B: Homebrew package) executed against the cluster crashes or corrupts data because the CLI was compiled against the old protobuf definition.
-* **The Cargo.toml / Homebrew Parity Dilemma:** Compiling developer CLIs from source via private Homebrew taps requires version declarations in `Cargo.toml`. If the release engineer bumps `Cargo.toml` in git to satisfy Homebrew, it violates Tier 2 Source Parity. If they don't, Homebrew installs a binary reporting the wrong version.
+
+At Tier 3 scale, the failures shift from single-repo build drift to **cross-surface skew** and **imperative cluster drift**:
+- **Dirty-Laptop `kubectl apply` Drift:** An operator applies a hot patch to `Norns` from a local worktree using `kubectl edit` or `helm upgrade`. Nothing is committed to `norns-gitops`, so the very next release PR silently wipes out the hot patch.
+- **Dual-Surface Skew (`Ullr` / `Yager`):** Updating the `Norns` cluster pods on Rail A without updating the Homebrew formula on Rail B (or leaving a rogue `~/.local/bin` shim ahead of `/opt/homebrew/bin` on `$PATH`) leaves the operator CLI speaking yesterday's wire protocol against today's server.
+- **The `Cargo.toml` vs. Parity Deadlock:** Homebrew compiles Rust tools from tagged git archives. Bumping `Cargo.toml` in git for Homebrew trips Tier 2's `check-release-source-parity.sh`; leaving `Cargo.toml` at `0.1.0` without formula intervention causes `yager --version` to print `0.1.0` forever.
 
 ### 3. Complete Technical Stack & Tooling Requirements
-* **GitOps Engine:** Argo CD or Flux CD deployed within the cluster network namespace.
-* **Repositories:** 
-  1. Application Repository (e.g., `vitki`, `yager`): Contains application code, Helm chart, and in-repo release scripts.
-  2. Central GitOps Repository (e.g., `norns-gitops`): Houses environment manifests, Argo CD Application resources, and pinned production values.
-  3. Private Homebrew Tap (e.g., `nate/tools`): Houses Formula definitions (`Formula/yager.rb`) for workstation distribution.
-* **Container & Helm Registry:** Harbor OCI registry storing both container images and versioned OCI Helm packages.
-* **Host Process Management:** `process-compose` for local developer service orchestration.
+- **GitOps Engine:** Argo CD running inside `Norns` with `selfHeal: true` and `prune: true`.
+- **Three-Repo Custody Topology:**
+  1. Application Repository (`nate/vitki`, `nate/yager`): Houses code, `chart/`, and `scripts/release-pr.sh`.
+  2. Cluster GitOps Repository (`nate/norns-gitops`): Houses Argo CD `Application` manifests and pinned environment values.
+  3. Private Homebrew Tap (`nate/homebrew-tools`): Houses `Formula/<tool>.rb` definitions for workstation CLIs.
+- **Local Process Management:** `process-compose` for any local multi-daemon development workflows (PM2 and raw background `&` are banned estate-wide).
 
 ### 4. Implementation Playbook
-Migrating to Tier 3 requires enforcing the **Strict GitOps Boundary**, **Dual-Rail Lockstep**, and **Sandboxed Formula Inreplace**:
+
+Migrating to Tier 3 enforces the **Strict GitOps Boundary**, **Sandboxed Formula Inreplace**, and **Dual-Rail Lockstep**:
 
 ```text
-[ DUAL-SURFACE RELEASE PR ] (e.g., Ullr/Yager)
+[ DUAL-SURFACE RELEASE PR ] (e.g., Ullr / Yager)
           │
-          ├──> [ Rail A: K3s Cluster GitOps ]
+          ├──> [ Rail A: Norns K3s Cluster GitOps ]
           │       │
           │       ▼
-          │    1. Retag Harbor OCI digest to vX.Y.Z
-          │    2. Open PR in central norns-gitops updating targetRevision
-          │    3. Argo CD reconciles cluster; live health probe verified
+          │    1. Retag Harbor OCI digest + push OCI Helm chart vX.Y.Z
+          │    2. Merge PR in nate/norns-gitops updating targetRevision & digest
+          │    3. Argo CD reconciles urd/verdandi/skuld; live daemon socket verified
           │
           └──> [ Rail B: Workstation Developer CLI ]
                   │
                   ▼
-               1. Package release tarball archive with SHA-256
-               2. Open PR in private Homebrew tap (nate/tools)
-               3. Formula executes sandboxed inreplace during compilation
-               4. Workstation installs bit-identical protocol client
+               1. Compute SHA-256 of tagged vX.Y.Z source tarball
+               2. Merge PR in private Homebrew tap (nate/homebrew-tools)
+               3. Formula runs sandboxed inreplace on Cargo.toml in /private/tmp
+               4. brew upgrade installs synced binary; which -a confirms 1 path
 ```
 
-#### Step 1: Revoke Direct Cluster Access (The Strict GitOps Boundary)
-Revoke all write access (`kubectl apply`, `helm install`) from developer workstations and CI runners. Argo CD is configured as the **sole deployment authority**.
-* Argo CD runs inside the cluster netns, polling the GitOps repository over HTTPS with a read-only deploy key.
-* Developers interact with cluster state exclusively by opening pull requests against `norns-gitops`.
+#### Step 1: Lock the GitOps Boundary on `Norns`
 
-#### Step 2: Establish the Dual GitOps Stream Model
-Configure two distinct Argo CD Applications inside `norns-gitops`:
-1. **The UAT Application:** Pinned to `targetRevision: main`. Pulls `chart/values-uat.yaml`, rendering `:uat` tags on staging NodePorts.
-2. **The Production Application:** Pinned to immutable SemVer tags (`targetRevision: vX.Y.Z`). Pulls `chart/values.yaml` rendering immutable `@sha256:` digests.
+Strip direct imperative deployment steps from workstation scripts and app-repo CI jobs. Argo CD is the sole applying authority on `Norns`, reconciling declarative PRs merged into `nate/norns-gitops`.
+
+#### Step 2: Configure Dual Argo CD Streams (UAT vs. Production)
+
+Inside `norns-gitops`, separate the auto-syncing UAT stream from the digest-pinned Production stream:
 
 ```yaml
 # norns-gitops/apps/vitki-prod.yaml
@@ -345,7 +345,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/nwalker85/vitki.git
+    repoURL: https://git.ravenhelm.dev/nate/vitki.git
     targetRevision: v1.4.2
     path: chart
     helm:
@@ -361,10 +361,11 @@ spec:
 ```
 
 #### Step 3: Implement Sandboxed Formula Inreplace (Rail B)
-To resolve the Homebrew source-parity conflict, adopt the **Sandboxed Formula Inreplace** pattern in your private tap. The application repository's `Cargo.toml` remains untouched at `0.1.0-dev`. The private Homebrew formula performs dynamic version substitution inside its isolated build sandbox during compilation:
+
+Keep `Cargo.toml` pinned at `"0.1.0"` in git so `check-release-source-parity.sh` stays green, and inject `#{version}` inside the Homebrew build sandbox in `Formula/yager.rb`:
 
 ```ruby
-# nate/tools: Formula/yager.rb
+# nate/homebrew-tools: Formula/yager.rb
 class Yager < Formula
   desc "Terminal User Interface and agent harness"
   homepage "https://github.com/nwalker85/yager"
@@ -375,7 +376,7 @@ class Yager < Formula
   depends_on "rust" => :build
 
   def install
-    # Dynamically inject release version into sandbox without touching git
+    # Dynamically inject release version inside /private/tmp without touching git
     inreplace "Cargo.toml", /^version = .*/, "version = \"#{version}\""
     inreplace "Cargo.lock", /name = "yager"\nversion = "[0-9.]+"/, "name = \"yager\"\nversion = \"#{version}\""
 
@@ -388,55 +389,47 @@ class Yager < Formula
 end
 ```
 
-#### Step 4: Codify Dual-Rail Synchronized Releases
-For repositories shipping both a server backend and a developer CLI (e.g., Ullr/Yager), the release workflow mandates simultaneous dual-rail execution:
-1. The release PR contains both the Helm value updates and the Homebrew formula update.
-2. The CI pipeline retags the container image in Harbor (Rail A) and computes the release tarball SHA-256 for the tap (Rail B).
-3. The merge event triggers automated deployment to the cluster via Argo CD and an automated commit to `nate/tools`.
+#### Step 4: Enforce Merge-Then-Deploy Across Both Rails (RP-6 & RP-10)
 
-#### Step 5: Enforce the "Merge-Then-Deploy" Protocol
-Approval to merge a release PR is explicitly defined as approval to drive deployment through to live runtime verification. A release is never marked "complete" upon git merge. The operator or automated agent must:
-1. Confirm the GitOps controller successfully synchronized the new revision.
-2. Execute a live runtime health probe against the target service.
-3. Verify that the running application responds with HTTP 200 and matches the expected release version string.
+Under **RP-10 (Merge-Then-Deploy)**, approval to merge a PR is approval to drive the release through both rails and prove it running. A dual-surface release is not closed until Argo CD reports `Synced / Healthy` on `Norns`, the live daemon endpoint returns the new build ID, `brew upgrade` completes on the workstation, and `which -a <tool>` confirms no `~/.local/bin` shim is shadowing `/opt/homebrew/bin/<tool>`.
 
 ### 5. Governance & Verification Gates
-* **Gate 3.1 (GitOps Exclusivity):** Zero human or CI credentials have RBAC permissions to mutate production pods directly. Any drift introduced outside of git is automatically reverted by Argo CD's self-healing reconciliation.
-* **Gate 3.2 (Dual-Rail Atomic Gate):** For dual-surface repositories, the release fails closed if either Rail A (Harbor retag) or Rail B (Tap formula update) fails. Partial releases are strictly prohibited.
-* **Gate 3.3 (Runtime Proof Gate):** Deployment success requires active proof of life from live running interfaces before the release is certified as converged.
+- **Gate 3.1 (GitOps Exclusivity):** Out-of-band `kubectl edit` mutations on `Norns` are automatically overwritten by Argo CD `selfHeal`.
+- **Gate 3.2 (Dual-Rail Lockstep Gate):** Dual-surface repos (`Ullr`, `Yager`) must ship Rail A and Rail B in the same release cycle.
+- **Gate 3.3 (Live Daemon Proof Gate):** Closure requires querying the live daemon socket (never a UI that falls back to mock data) and recording the output in the Linear validation comment.
 
 ### 6. Operational Guarantees Unlocked
-* **Zero Configuration Drift:** The state of the production cluster is 100% represented by the commit history of the GitOps repository.
-* **Elimination of Surface Drift:** Developer CLI tooling and server-side gRPC/REST APIs remain strictly synchronized, preventing protocol divergence incidents.
-* **Instantaneous Rollback (<30s):** Reverting a production release requires only reverting the single git commit in the GitOps repository; Argo CD immediately converges the cluster pods to the previous digest.
+- **Zero Cluster Configuration Drift:** Every running pod and `ConfigMap` on `Norns` matches `norns-gitops` commit history.
+- **Zero Workstation-to-Cluster Skew:** Operator CLIs and cluster backends advance in lockstep.
+- **Sub-30-Second GitOps Rollback:** Reverting a single commit in `norns-gitops` restores the previous cached digest across `urd`, `verdandi`, and `skuld`.
 
 ---
 
 ## Tier 4: Sovereign Elevation & Zero-Trust Delivery (The Enterprise)
 
-**Core Focus:** Isolate blast radiuses, eliminate ambient CI authority, enforce cryptographic multi-factor elevation for control plane mutations, and distribute desktop GUI clients via signed over-the-air updates.
+**Core Focus:** Partition blast radiuses, strip ambient root credentials from CI runners, enforce cryptographic **Action-Hash Elevation (Valkyrie MFAA)** for control-plane mutations, and ship signed Ed25519 desktop OTA bundles on Rail C.
 
 ### 1. Target Organization Profile & Team Scale
-* **Team Size:** 75+ engineers, regulated enterprises (SOC2 Type II, FedRAMP, ISO 27001), defense tech, financial infrastructure, or sovereign self-hosted estates.
-* **Architecture:** Multi-cluster Kubernetes, hybrid on-prem / sovereign cloud, identity providers (Keycloak, Zitadel), secrets vaults (OpenBao, HashiCorp Vault), and native desktop GUI applications (macOS, Windows, Linux) distributed to end users.
-* **Infrastructure:** Zero-trust network fabric, hardware security modules (HSM) or hardware keys (YubiKey), dedicated runner clusters (eikthyrnir) running in isolated network namespaces.
-* **Release Cadence:** Continuous automated application delivery; strictly gated and cryptographically audited control-plane and identity elevation cycles.
+- **Team Size:** 50+ engineers, regulated enterprises (SOC 2 Type II, ISO 27001, FedRAMP), or sovereign high-autonomy AI fleets where autonomous coding agents execute continuous deployments alongside human operators.
+- **Architecture:** Multi-node Kubernetes (`Norns`), identity and secrets control planes (`Zitadel`, `Keycloak`, `OpenBao`), dedicated container runner pools (`eikthyrnir` managed by `forgejo-runner-scheduler`), and native desktop GUI shells (`Idunn` on Tauri v2).
+- **Infrastructure:** Zero-ambient-authority secrets architecture (`OpenBao` AppRoles + `Valkyrie` MFAA broker) with hardware security tokens (FIDO2 / WebAuthn / YubiKey).
 
 ### 2. Pain Points & Ceilings Hit
-Even with Tier 3 GitOps, high-consequence organizations face critical existential threats:
-* **The Ambient Authority Runner Takeover:** A compromised dependency (e.g., an npm build script or malicious GitHub Action) executes within a CI runner. If that runner possesses ambient credentials to AWS, Vault, or Keycloak, the attacker extracts root secrets and compromises the entire corporate identity plane.
-* **The Rogue Infrastructure Mutation:** An automated pipeline or rogue administrator applies a Terraform patch that disables multi-factor authentication or opens database ports to the internet without human executive oversight.
-* **Desktop Client Supply Chain Tampering (Rail C Risks):** Distributing desktop GUI client updates over the internet exposes users to man-in-the-middle attacks, corrupted downloads, or compromised CDN mirrors if updates are not signed with asymmetric cryptographic keys.
+
+When autonomous AI agents and CI runners can merge PRs and trigger deployments around the clock, Tier 3 GitOps hits a hard security ceiling:
+- **The Ambient Runner Credential Risk:** If a CI runner holds static, ambient admin tokens for `OpenBao`, `Harbor`, `Keycloak`, or `Norns` `cluster-admin`, a single compromised build dependency or hallucinating agent command can mutate RBAC policies, exfiltrate secrets, or wipe an identity realm.
+- **The Unattended Issuance Fallacy:** On September 14, 2026, court card `dr-8` asked how Draupnir could allow *"unattended issuance with no human signer."* The ruling (seq 859) laid down the law: *"the entire point is accountability being attributed to the human actor. this shouldnt have even been a question."* Tools and agents prepare evidence and plans; a human clicks the accept/reject button on control-plane mutations.
+- **Desktop Client OTA Tampering (Rail C):** Shipping pre-compiled desktop `.app.tar.gz` bundles to operator machines without asymmetric Ed25519 signature verification exposes every workstation to supply-chain replacement.
 
 ### 3. Complete Technical Stack & Tooling Requirements
-* **Identity & Secrets Infrastructure:** Zitadel / Keycloak OIDC fabric, OpenBao / Vault secrets management with short-lived AppRoles and dynamic secret leasing.
-* **Elevation & MFAA Engine:** Valkyrie Multi-Factor Action Approval broker integrating hardware security tokens and biometric push confirmation.
-* **Desktop Client Packaging (Rail C):** Tauri v2 (Rust + Svelte/React) desktop client architecture.
-* **Cryptographic Attestation & Signing:** Minisign (Ed25519) for desktop bundle signing, Cosign / Notary for container image signing, and Sigstore provenance attestations.
-* **Security & Vulnerability Scanning:** Harbor native Trivy vulnerability scanning, enforcing admission controller gates that block unsigned images or images with critical CVEs.
+- **Secrets & Identity Plane:** `OpenBao` on `Norns` with short-lived AppRole leases, paired with `Zitadel` / `Keycloak` OIDC.
+- **Cryptographic Elevation Broker:** **Valkyrie** Multi-Factor Action Approval (MFAA) service binding hardware FIDO2/WebAuthn challenges to exact SHA-256 action hashes.
+- **Desktop Packaging & Signing (Rail C):** Tauri v2 (`Idunn`), Minisign Ed25519 (`TAURI_SIGNING_PRIVATE_KEY` stored in 1Password `ravenmask` vault), and `latest.json` OTA manifests.
+- **Admission & Registry Security:** Harbor Trivy scanning and Kubernetes admission policies blocking unsigned or quarantined digests.
 
 ### 4. Implementation Playbook
-Tier 4 establishes **Blast Radius Partitioning**, **Action-Hash Elevation (The Ehwaz Doctrine)**, and **Rail C Cryptographic Desktop OTA**:
+
+Tier 4 installs **Blast Radius Partitioning**, **Action-Hash Elevation (Valkyrie MFAA)**, and **Rail C Signed Desktop OTA**:
 
 ```text
                                  [ OPERATIONAL CHANGE ]
@@ -444,154 +437,143 @@ Tier 4 establishes **Blast Radius Partitioning**, **Action-Hash Elevation (The E
                    ┌───────────────────────┴───────────────────────┐
                    ▼                                               ▼
     [ SURFACE 1: ROUTINE APP ]                      [ SURFACE 2: CONTROL PLANE ]
-    Scope: Container images, Helm                   Scope: Keycloak, Vault, Harbor RBAC
-    Authority: Autonomous GitOps                     Authority: Valkyrie MFAA Elevation
-    Tokens: Least-privilege push/pull                Tokens: Ephemeral, action-hash bound
+    Scope: App container images, Helm values        Scope: OpenBao, Keycloak, Harbor RBAC, CRDs
+    Authority: Autonomous GitOps                    Authority: Action-Hash Elevation (Valkyrie MFAA)
+    Tokens: Scoped service AppRole                  Tokens: Ephemeral, action-hash bound, single-use
                    │                                               │
                    ▼                                               ▼
-         Argo CD Syncs Pod                                1. CI runs read-only plan
-                                                          2. Computes SHA-256 of plan
-                                                          3. Human signs challenge via MFA
-                                                          4. Single-use apply & burn
+         Argo CD Syncs Pod                                1. Runner generates read-only plan
+                                                          2. Computes SHA-256 of exact plan payload
+                                                          3. Human signs challenge via Valkyrie MFA
+                                                          4. Single-use token executes & burns
 ```
 
-#### Step 1: Implement Blast Radius Partitioning
-Strictly partition all operational changes into two distinct security surfaces:
-* **Surface 1: Routine Application Mutations (Autonomous / Low Blast Radius).** Includes container image updates, Helm values bumps, and static web asset deployments. These changes flow autonomously through GitOps without requiring manual elevation. CI runners operate with scoped, least-privilege tokens.
-* **Surface 2: Control Plane & Identity Mutations (Gated Elevation / High Blast Radius).** Includes modifications to Keycloak realms, Vault access policies, Harbor RBAC, and root database schemas. Automated ambient execution is completely prohibited.
+#### Step 1: Partition the Blast Radius (Surface 1 vs. Surface 2)
 
-#### Step 2: Implement Zero Ambient Authority for CI Runners
-CI runners are stripped of all permanent cloud or cluster-admin credentials:
-* Runners obtain short-lived, dynamically generated AppRole tokens from OpenBao that expire in 15 minutes.
-* Tokens are restricted to read-only capabilities during pull request verification.
+Divide every mutation in the estate into two strict surfaces (**RP-12: Zero-Ambient Elevation**):
+- **Surface 1: Routine Application Delivery (Autonomous / Low Blast Radius).** Container image digest bumps, application Helm values, and Homebrew tap updates flow automatically through GitOps using narrowly scoped service credentials (`control-runs-with-the-services-own-credential` - never an operator's personal PAT).
+- **Surface 2: Control Plane, Identity & RBAC Mutations (Gated Elevation / High Blast Radius).** Changes to `OpenBao` policies, `Keycloak`/`Zitadel` realms, Harbor project permissions, cluster-wide CRDs/`PrometheusRules`, or production database roles cannot execute on ambient runner credentials.
 
-#### Step 3: Implement the Ehwaz Doctrine (Action-Hash Elevation)
-For Surface 2 mutations, enforce the **Ehwaz Doctrine**:
-> *"Trust no agent with ambient authority; elevation via Valkyrie, action-hash bound, single use."*
+#### Step 2: Strip Ambient Authority with OpenBao AppRoles
 
-1. **Generate Read-Only Plan:** The CI runner executes a plan operation (e.g., `terraform plan -out=tfplan.binary`).
-2. **Compute Plan Digest:** The runner generates the SHA-256 hash of the compiled plan file:
+Remove static long-lived admin tokens from CI runner environments. Runners authenticate to `OpenBao` on `Norns` via scoped AppRoles that mint short-lived leases (15-minute TTL) restricted to the exact repository's Harbor path or read-only plan execution.
+
+#### Step 3: Implement Action-Hash Elevation (Valkyrie MFAA)
+
+For any Surface 2 control-plane mutation, enforce **Action-Hash Elevation (Valkyrie MFAA)**:
+
+> *"Trust no agent or runner with ambient control-plane authority; elevate via Valkyrie, bound to the exact SHA-256 action hash, for a single execution."*
+
+1. **Generate the Deterministic Plan:** The runner executes a read-only plan (for example, `terraform plan -out=tfplan.binary` or a canonical JSON mutation spec).
+2. **Compute the Action Hash:** The runner hashes the exact plan bytes:
+
    ```bash
-   PLAN_HASH=$(sha256sum tfplan.binary | awk '{print $1}')
+   ACTION_HASH=$(sha256sum tfplan.binary | awk '{print $1}')
    ```
-3. **Dispatch Valkyrie Challenge:** The pipeline submits an elevation request to the Valkyrie broker containing the `plan_hash` and change metadata.
-4. **Human Biometric Authorization:** An authorized human gatekeeper reviews the exact plan output and signs the challenge on an air-gapped or biometrically secured device.
-5. **Single-Use Consumption:** The apply runner receives an ephemeral authorization token cryptographically bound to `PLAN_HASH`. It verifies the hash, applies the plan, and immediately consumes the token, invalidating it permanently:
+
+3. **Request Valkyrie MFAA Challenge:** The runner posts `ACTION_HASH` and the human-readable diff summary to `Valkyrie`.
+4. **Human Cryptographic Sign-Off:** The human Sovereign Gatekeeper inspects the diff and signs the challenge with a hardware FIDO2/WebAuthn token. Accountability chains directly to the human actor.
+5. **Verify-Apply-Burn:** `Valkyrie` issues a single-use capability lease bound to `ACTION_HASH`. The apply step verifies that the plan on disk still hashes to `ACTION_HASH`, executes the mutation, and burns the lease immediately:
 
 ```json
 {
   "elevation_challenge": {
-    "target_plane": "identity_keycloak_production",
-    "plan_sha256": "4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a",
-    "authorized_by": "nate@ravenhelm.co",
+    "target_plane": "openbao_norns_production_policies",
+    "action_sha256": "4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a",
+    "authorized_by": "nate@ravenhelm.dev",
     "mfa_method": "fido2_webauthn_hardware_token",
     "issued_at": "2026-11-04T10:15:30Z",
     "expires_at": "2026-11-04T10:20:30Z",
-    "consumed": true
+    "single_use_consumed": true
   }
 }
 ```
 
-#### Step 4: Implement Rail C Desktop OTA Distribution (Reference: Idunn)
-For client desktop applications (e.g., Tauri v2 desktop shells), deploy an enterprise-grade over-the-air update pipeline:
-1. **Deterministic Bundle Packaging:** The ingress build runner builds the `.app.tar.gz` and `.dmg` archives from trunk code.
-2. **Ed25519 Cryptographic Signing:** The release runner retrieves the pre-built bundle and signs the archive using a dedicated Minisign private key:
+If an agent or attacker alters a single byte of the plan after approval, the SHA-256 hash mismatches and `Valkyrie` rejects the execution cold.
+
+#### Step 4: Implement Rail C Signed Desktop OTA (`Idunn` Reference)
+
+For Tauri v2 desktop apps (`Idunn`), wire Ed25519 Minisign verification into the release promotion flow:
+1. **Ingress Build (`:b<N>`):** Compiles the native `.app.tar.gz` and `.dmg` bundles once on merge to `main`.
+2. **Promotion-Time Minisign:** On tag `vX.Y.Z`, the release workflow pulls the pre-built `:b<N>` bundle, retrieves `TAURI_SIGNING_PRIVATE_KEY` from 1Password (`ravenmask` vault), and signs the archive:
+
    ```bash
-   minisign -Sm "Idunn-${VERSION}.app.tar.gz" -s ~/.minisign/idunn_release.key
+   minisign -Sm "Idunn_${VERSION}_aarch64.app.tar.gz" -s "$EPHEMERAL_KEY"
    ```
-3. **Generate Signed Update Manifest (`latest.json`):** The release pipeline publishes an immutable manifest containing the version, download endpoint, SHA-256 checksum, and base64 signature:
-   ```json
-   {
-     "version": "1.4.2",
-     "notes": "Synchronized protocol update for Vitki v1.4.2 backend.",
-     "pub_date": "2026-11-04T10:30:00Z",
-     "platforms": {
-       "darwin-aarch64": {
-         "signature": "RWRmZXhhbXBsZXNpZ25hdHVyZWV4YW1wbGVzaWduYXR1cmVleGFtcGxlc2lnbmF0dXJlCg==",
-         "url": "https://releases.ravenhelm.dev/idunn/v1.4.2/Idunn-aarch64.app.tar.gz"
-       }
-     }
-   }
-   ```
-4. **Client-Side Verification Handshake:** The desktop application queries `latest.json` over HTTPS, validates the cryptographic signature using its embedded public key, verifies payload integrity, swaps the binary, and prompts the user to restart.
+
+3. **Publish `latest.json`:** Uploads the detached signature and archive URL to `https://releases.ravenhelm.dev/idunn/latest.json`.
+4. **Client Fail-Closed Verification:** `Idunn` verifies the Ed25519 signature against its compiled-in public key before unpacking or swapping `/Applications/Idunn.app`.
 
 ### 5. Governance & Verification Gates
-* **Gate 4.1 (Action-Hash Binding):** An elevation token cannot be consumed by any plan whose SHA-256 hash differs by even a single bit from the reviewed plan.
-* **Gate 4.2 (Cryptographic Image Attestation):** Harbor's admission controller rejects container deployment unless the image digest carries a valid Cosign cryptographic signature generated by an authorized release key.
-* **Gate 4.3 (Single-Use Token Consumption):** Elevation tokens are atomic and consumable; replaying a previously signed approval token fails immediately.
+- **Gate 4.1 (Action-Hash Binding):** A `Valkyrie` elevation token is mathematically invalid for any payload whose SHA-256 differs by a single bit from the signed plan.
+- **Gate 4.2 (Service-Owned Credentials):** Daemons and schedulers (like `forgejo-runner-scheduler`) run solely with their own scoped robot/AppRole credentials, never a human operator's personal PAT (`frs #88`).
+- **Gate 4.3 (Fail-Closed Client Signature Gate):** Unsigned or corrupted Rail C desktop bundles are unlinked before extraction.
 
 ### 6. Operational Guarantees Unlocked
-* **Immunity to CI Runner Compromise:** Even if an attacker gains arbitrary code execution inside a CI runner, they cannot alter infrastructure or identity configurations without bypassing hardware-token biometric human approval.
-* **End-to-End Cryptographic Provenance:** Every piece of software running on a server or desktop workstation is cryptographically linked to a verified source commit, a certified build pipeline, and an authorized human release name.
-* **Sovereign Operational Independence:** The entire delivery pipeline can run air-gapped on sovereign hardware without dependencies on external SaaS vendors or hosted build systems.
+- **Blast-Radius Containment:** A compromised build runner or rogue agent slice cannot escalate privileges into `OpenBao`, `Keycloak`, or cluster RBAC.
+- **Non-Repudiable Human Accountability:** Every high-blast mutation carries a cryptographic receipt naming the human gatekeeper and the exact `action_sha256` approved.
+- **Three-Rail Sovereign Custody:** Server pods on `Norns` (Rail A), Homebrew CLIs on MacBooks (Rail B), and desktop GUI apps on Rail C all ship from immutable `:b<N>` builds with cryptographic verification.
 
 ---
 
 ## The Migration Decision Matrix
 
-To assist engineering leaders in evaluating their current maturity and determining their immediate operational roadmap, RROM provides the following comprehensive diagnostic matrix.
-
-### Operational Maturity Diagnostic Matrix
-
-| Capability Dimension | Tier 1: Artifact Discipline | Tier 2: Registry & Digest Locking | Tier 3: Multi-Rail Declarative GitOps | Tier 4: Sovereign Elevation |
+| Capability Dimension | Tier 1: Artifact Discipline | Tier 2: Registry & Digest Locking | Tier 3: Multi-Rail Declarative GitOps | Tier 4: Sovereign Zero-Trust Delivery |
 | :--- | :--- | :--- | :--- | :--- |
-| **Target Scale** | 1–3 Engineers | 4–15 Engineers | 15–75 Engineers | 75+ Engineers / Regulated |
+| **Target Scale** | 1-3 Engineers | 4-15 Engineers / Multi-Slice | 15-75 Engineers / Multi-Surface | 50+ Engineers / Sovereign Fleet |
 | **Compilation Trigger** | On merge to `main` only | On merge to `main` only | On merge to `main` only | On merge to `main` only |
-| **Release Mechanism** | Re-tagging existing `:b<N>` | Release PR + Retag script | Release PR + Multi-Rail Sync | Action-Hash MFAA Elevation |
-| **Artifact Identity** | `:b<N>` sequential number | `:b<N>`, `:sha-12`, `:uat` | Triple tags + OCI Helm chart | Cryptographically signed digest |
-| **Manifest Pinning** | Mutable tag (`vX.Y.Z`) | Immutable `@sha256:` digest | Immutable `@sha256:` digest | Signed digest + Admission gate |
-| **Deployment Authority** | Host docker daemon / runner | Host docker daemon / Helm | Argo CD / GitOps (Zero laptop) | Zero-trust GitOps + Valkyrie |
-| **Workstation Tooling** | Uncoordinated / Ad-hoc | Tracked manually | Sandboxed Formula Inreplace | Signed OTA binaries (Rail C) |
-| **Source Parity Gate** | Manual inspection | Automated `check-parity.sh` | Automated `check-parity.sh` | Cryptographic commit link |
-| **Runner Secrets** | Standard repo secrets | Scoped push/pull tokens | Least-privilege deploy keys | Ephemeral OpenBao AppRoles |
-| **Rollback Capability** | Pull previous tag (5 min) | Pull previous digest (2 min) | Git revert commit (<30 sec) | Instant GitOps pointer revert |
+| **Release Mechanism** | Retagging existing `:b<N>` | `release-pr.sh` + API retag | `release-pr.sh` + Rail A/B lockstep | GitOps + Action-Hash Elevation |
+| **Artifact Identity** | `:b<N>` sequential number | `:b<N>`, `:sha-<commit12>`, `:uat` | Triple tags + OCI Helm chart | Signed digest + Minisign OTA |
+| **Manifest Pinning** | SemVer tag (`vX.Y.Z`) | Immutable `@sha256:` digest | Immutable `@sha256:` digest | Signed digest + Admission gate |
+| **Deployment Authority** | Canonical Compose workflow | Canonical Compose / Helm | Argo CD (`norns-gitops` only) | Argo CD + Valkyrie MFAA |
+| **Workstation Tooling** | Manual install | Manual tap update | Sandboxed Formula `inreplace` | Rail B Tap + Rail C Signed OTA |
+| **Source Parity Gate** | Manual diff review | `check-release-source-parity.sh` | Source Parity + Artifact-Grep | Cryptographic commit + plan hash |
+| **Runner Credentials** | Scoped repo secrets | Scoped Harbor robot tokens | Service-owned robot credentials | Ephemeral `OpenBao` AppRoles |
+| **Rollback Capability** | Redeploy prior `:b<N>` (3 min) | Repoint `@sha256:` digest (1 min) | `git revert` in `norns-gitops` (<30s) | Instant GitOps revert + Quarantine |
 
 ---
 
 ## The Monday Morning Action Plan
 
-Adopting RROM does not require pausing product development for a six-month infrastructure rewrite. Engineering leaders should identify their current tier and take one concrete, high-leverage step on Monday morning to ascend to the next level:
+Do not pause feature delivery for six months to build Tier 4 from scratch. Find your current tier on the bench and execute one concrete upgrade on Monday morning:
 
-### If You Inhabit Tier 0 (The Ad-Hoc / Rebuild-on-Tag Baseline)
-* **Your Current Reality:** Pushing `git tag v1.0.0` triggers a CI runner that runs `docker build` or `npm run build`. Staging and production run different bits.
-* **Your Monday Morning Step:** **Kill the tag compiler.**
-  1. Open your CI pipeline configuration (`.github/workflows/deploy.yml`).
-  2. Change the trigger from `on: push: tags: 'v*'` to `on: push: branches: [main]`.
-  3. Configure the build step to publish with the monotonic build sequence number: `service:b${{ github.run_number }}`.
-  4. Write a 10-line release workflow that triggers on tags and does exactly one thing: `docker pull service:latest && docker tag service:latest service:${{ github.ref_name }} && docker push service:${{ github.ref_name }}`.
+### If You Inhabit Tier 0 (Rebuilding on Tags or Auto-Rolling `:latest`)
+- **Your Crime Scene:** Pushing `git tag v1.0.0` runs `docker build`, or a production container tracks `:latest` like `freyr-api` used to.
+- **Your Monday Morning Step:** **Kill the tag compiler and ban `:latest` in prod.**
+  1. Move `docker build` into `.forgejo/workflows/build.yml` triggered solely on `push: branches: [main]`.
+  2. Stamp every trunk build with `:b${{ github.run_number }}`.
+  3. Replace `docker build` in `release.yml` with a pure registry retag of the proven `:b<N>` image.
 
-### If You Inhabit Tier 1 (Artifact Discipline Installed)
-* **Your Current Reality:** You build once on `main`, but production manifests reference mutable tags (`image: service:v1.2.0`), leaving you vulnerable to tag mutation and source drift.
-* **Your Monday Morning Step:** **Install Digest Locking and the Parity Guard.**
-  1. Add `scripts/check-release-source-parity.sh` to your repository.
-  2. Add a CI check that executes this script on every release PR, ensuring no `.go`, `.rs`, `.ts`, or `.py` files are modified.
-  3. Update your production manifest to pin the container image using its immutable digest: `image: service:v1.2.0@sha256:<digest>`.
+### If You Inhabit Tier 1 (Building Once, Deploying Mutable Tags)
+- **Your Crime Scene:** You build once on `main`, but `values.yaml` or `docker-compose.yml` only specifies `image: service:v1.2.0` without an `@sha256:` pin, and nothing stops an engineer from editing `.rs` or `.ts` files on a release branch.
+- **Your Monday Morning Step:** **Install Digest Locking and `check-release-source-parity.sh`.**
+  1. Drop `scripts/harbor-artifact.sh`, `scripts/release-pr.sh`, `scripts/check-release-source-parity.sh`, and `scripts/check-release-tag.sh` into `scripts/` (or scaffold via **Project Factory**).
+  2. Update `chart/templates/deployment.yaml` to render `{{ .Values.image.repository }}:{{ .Values.image.tag }}@{{ .Values.image.digest }}`.
+  3. Require `check-release-source-parity.sh` to pass on every `release/*` PR.
 
-### If You Inhabit Tier 2 (Registry & Digest Locking Installed)
-* **Your Current Reality:** You pin digests and verify parity, but developers still run `kubectl apply` or `helm upgrade` from their laptops, and your CLI tools drift out of sync with your backend APIs.
-* **Your Monday Morning Step:** **Establish the GitOps Boundary and Dual-Rail Sync.**
-  1. Stand up an Argo CD instance in your cluster and create a dedicated configuration repository (`gitops-config`).
-  2. Revoke write permissions to production Kubernetes namespaces from all personal user accounts.
-  3. If you distribute a developer CLI or TUI, create a private Homebrew tap and adopt the **Sandboxed Formula Inreplace** pattern to eliminate version bump commits in your source repository.
+### If You Inhabit Tier 2 (Digests Locked, Laptops Still Running `kubectl apply`)
+- **Your Crime Scene:** Your digests are pinned, but engineers still run `helm upgrade` from local worktrees or leave `~/.local/bin` CLI shims out of sync with cluster pods.
+- **Your Monday Morning Step:** **Hand the Gavel to `norns-gitops` and `nate/tools`.**
+  1. Register the service as an Argo CD `Application` in `norns-gitops` with `selfHeal: true`.
+  2. Stop running `kubectl apply` from workstations.
+  3. For any repo with a Rust or Go CLI, add its formula to `nate/homebrew-tools` using sandboxed `inreplace` so `Cargo.toml` never has to be bumped in git.
 
-### If You Inhabit Tier 3 (Multi-Rail Declarative GitOps Installed)
-* **Your Current Reality:** Your application releases flow cleanly through GitOps, but CI runners hold powerful credentials to infrastructure, and database or identity changes lack cryptographic approval boundaries.
-* **Your Monday Morning Step:** **Partition Your Blast Radius.**
-  1. Audit your repository CI secrets. Segregate application deployment permissions from control-plane and identity mutations.
-  2. For high-blast infrastructure changes (Terraform, Keycloak, Vault), introduce an action-hash elevation workflow: generate a plan, compute its SHA-256 hash, and require out-of-band biometric approval before execution.
-  3. If distributing desktop applications, install Minisign Ed25519 signing into your release pipeline and configure your desktop shell to verify updates against a signed `latest.json` manifest.
+### If You Inhabit Tier 3 (Multi-Rail GitOps Live, Ambient Credentials in CI)
+- **Your Crime Scene:** Application releases flow cleanly through Argo CD, but CI runners or automation scripts hold long-lived admin tokens or personal PATs.
+- **Your Monday Morning Step:** **Partition Blast Radiuses and Gate Surface 2 on Valkyrie MFAA.**
+  1. Replace every personal PAT in automation with a dedicated service credential or `OpenBao` AppRole.
+  2. Put Surface 2 mutations (`OpenBao` policies, `Keycloak`/`Zitadel` realms, cluster RBAC) behind **Action-Hash Elevation (Valkyrie MFAA)** so no plan applies without a human FIDO2 signature bound to its `sha256` digest.
+  3. Wire Ed25519 Minisign verification into any Rail C desktop release workflow.
 
 ---
 
 ## Summary of Guarantees Across the Ladder
 
-The RROM Tiered Adoption Ladder is not an arbitrary checklist of enterprise tooling; it is a ladder of operational truth:
+- **Tier 1** guarantees that **releases never rebuild code**.
+- **Tier 2** guarantees that **deployed digests cannot be mutated and release PRs cannot smuggle source edits**.
+- **Tier 3** guarantees that **Argo CD is the sole cluster authority and workstation CLIs stay locked to cluster backends**.
+- **Tier 4** guarantees that **no runner holds ambient root authority and every control-plane mutation is bound to a human-signed action hash**.
 
-* **Tier 1** guarantees that **releases never rebuild code**.
-* **Tier 2** guarantees that **deployed artifacts cannot be mutated or drifted**.
-* **Tier 3** guarantees that **no engineer applies code from a dirty laptop and no CLI drifts from its backend**.
-* **Tier 4** guarantees that **no automation runner possesses ambient root authority and every release is cryptographically sovereign**.
-
-By climbing this ladder deliberately as organizational scale demands, engineering teams maintain high feature velocity while building release infrastructure that is resilient, deterministic, and auditable.
+Climb one rung at a time. Lock each ratchet behind you.
 
 <!-- RUBRIC_CHECK: Chapter 8 conforms to RROM specification. -->

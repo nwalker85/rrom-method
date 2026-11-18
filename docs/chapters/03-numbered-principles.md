@@ -1,48 +1,46 @@
 # Chapter 3: The Numbered Principles
 
-<!-- LICENSE: RROM Community License 1.0 (c) 2026 Ravenhelm LLC -->
+<!-- LICENSE: © 2026 Ravenhelm LLC. Licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Attribution required: "Ravenhelm LLC — Ravenhelm Release Operations Methodology (RROM), https://ravenhelm.dev". -->
 
-You have worked in organizations where release day was treated like a natural disaster. Engineers gathered on bridge calls at midnight. Someone ran `git pull` on a production host over SSH. Someone else pushed an unversioned container tag called `latest` or `hotfix-2`, while a third person compiled a CLI on an M2 MacBook with custom flags and emailed the binary to the operations team. When the system broke—and it always broke—no one could state with cryptographic certainty what code was running, what commit it originated from, or why the binary tested in staging behaved differently from the binary serving customer traffic.
+## Why the Floor Needs Numbers
 
-The Ravenhelm Release Operations Methodology (RROM) does not solve this by pleading with engineers to "be more careful" or by piling manual approval checklists onto release managers. It writes down the physical and architectural constraints that govern immutable software delivery and gives them numbers so they can be cited, audited, and mechanically enforced.
+On 2026-09-09, an audit across the estate turned up ten merged features backed by 73 passing unit tests that had **zero callers** in the running system: a 46 KB `wire.py` protocol module imported nowhere, a `vodozemac-bridge` crate sitting unlinked, and an `ensure_receiver()` lifecycle hook bypassed entirely by `doom new --launch`. Every one had green tests. None of them ran. One month later, on 2026-10-09, `domainintelligenceschema` (`DIS`) shipped `v1.8.0` via PR #11, announcing seven new ontology constructs on the live documentation site while `grep` across `vocabulary/`, `shapes/`, `cue/`, and `tests/` returned zero matches.
 
-The numbered principles are the bedrock of the Method. They establish an unambiguous coordinate system across every computing surface: server backends running in Kubernetes or bare-metal container runtimes, developer workstation tools distributed through package managers, and standalone client desktop binaries.
+Pleading with engineers - or autonomous `Doom` worker slices - to "be more careful during release review" fixes nothing. The social layer does not transfer to a fleet of thirty concurrent AI sessions, and it barely survives a tired human on-call rotation at 2:00 a.m. You do not govern a forge with reminders. You write down the physical invariants that bind source commits to running bytes, give each invariant a canonical number (`RP-1` through `RP-18`), and wire those numbers into fail-closed shell scripts that break the build the second a boundary is crossed.
 
-The most load-bearing principle is **RP-1: Build Once on Ingress**. If an engineering team adopts only one principle from this canon, adopting RP-1 permanently eliminates the largest category of production deployment failures.
+If you adopt only one principle from this book, lock in **RP-1: Build Once on Ingress**. Eliminating release-time compilation kills the single largest source of unverified production binaries on day one.
 
 ---
 
-## How to Cite the Principles
+## How to Cite the Principles on the Bench
 
-Principles serve no operational purpose if they remain confined to a reference manual. A principle that is never named in a pull request review, a CI failure annotation, an Architectural Decision Record (ADR), or a post-incident timeline is dead ceremony. A principle cited weekly becomes an immutable operational boundary.
+A principle that never appears in a pull request block, a CI failure log, an Architectural Decision Record (ADR), or an incident timeline is shelfware. On the Ravenhelm floor, operators and automated reviewers (`Snotra` and the `Doomcourt` supervisor) cite principles by number to terminate ambiguity:
 
-When software engineers and release operators cite principles by number, debates shift from personal aesthetic opinions to canonical system invariants:
+- **In Pull Request Blocks:** *"Holding merge per `RP-5`: `release/v1.4.2` modifies `src/core/parser.rs`, violating zero-drift source parity against parent build `:b42`."*
+- **In Pipeline Failure Logs:** *"FATAL (`RP-4`): `chart/values.yaml` declares mutable tag `:v1.4.2` without an immutable `@sha256:` digest pin."*
+- **In Incident Post-Mortems:** *"Outage traced to an un-gated datastore swap violating `RP-11` (`ADR-011`). The transport replacement shipped inside a minor version bump without an accepted ADR or migration gate."*
+- **In Live Recovery Commands:** *"Reverting `norns-gitops` digest pointer to `:b88` per `RP-14`."*
 
-- In Pull Request Reviews: *"Holding merge per `RP-5`: release branch contains modifications to `src/core/parser.rs`, violating zero-drift source parity against parent build `b42`."*
-- In Pipeline Failure Logs: *"FATAL: `RP-4` violation detected. Deployment manifest `chart/values.yaml` specifies mutable tag `:v1.4.2` without an `@sha256:` digest pin."*
-- In Incident Retrospectives: *"The outage resulted from an unadjudicated cutover violating `RP-11`. The datastore swap was submitted under a routine minor version bump without an accepted ADR or dual-running window."*
-- In Operator CLI Commands: *"Executing immediate pointer rollback to build `b88` per `RP-14`."*
-
-> ### Augmentation Surface — Automated Verification & Principle Enforcement
+> ### Augmentation Surface - Automated Principle Enforcement
 >
 > **Where Autonomous Agent Layers Excel:**  
-> Static policy linters and autonomous agent supervisors (such as Snotra and the Doom fleet supervisor) continuously inspect repositories and registries against the numbered principles. Linters detect `RP-5` source drift during release PR creation, verify that runtime manifests conform to `RP-4` digest pinning, assert that release pipelines never invoke compilers (`RP-2`), and ensure that working directories conform to `RP-18` worktree custody before executing git mutations.
+> Static policy scripts and advisory review agents (`Snotra`) verify every PR and registry state transition against `RP-1` through `RP-18`. They run `check-release-source-parity.sh` (`RP-5`), verify `@sha256:` pins in Helm values (`RP-4`), grep release artifacts against advertised changelog claims (`RP-13`), and verify `.bare` worktree custody before running git commands (`RP-18`).
 >
 > **What the Human Operator Retains:**  
-> The human operator retains sole authority over architectural cutover gates (`RP-11`), multi-factor action elevations (`RP-17`), and final release merge authorization (`RP-10`). Autonomous systems verify compliance and assemble cryptographic evidence; human release closers authorize production state transitions.
+> The human operator holds non-delegable custody over architectural cutover gates (`RP-11`), hardware-signed **Action-Hash Elevation (Valkyrie MFAA)** tokens (`RP-12`, `RP-17`), and final release merge-and-deploy execution (`RP-10`). Agents assemble the cryptographic receipts; a human clicks the accept/reject button.
 
-The eighteen principles are organized into four operational categories:
+The principles divide into four operational categories:
 
 1. **Category I: Artifact Custody & Immutability** (`RP-1` through `RP-5`)
 2. **Category II: Multi-Surface Rails** (`RP-6` through `RP-8`)
 3. **Category III: Deployment Authority & Cutover Governance** (`RP-9` through `RP-12`)
-4. **Category IV: Verification & Observability** (`RP-13` through `RP-18`)
+4. **Category IV: Verification, Rollback & Custody Hygiene** (`RP-13` through `RP-18`)
 
 ---
 
 ## Category I: Artifact Custody & Immutability
 
-Category I establishes the lifecycle boundaries governing how source code transforms into binary artifacts, how artifacts are addressed, and how promotional state transitions occur without re-compilation.
+Category I governs how source commits become binary units in `Harbor`, how those units are addressed by the kernel, and how names are attached without ever invoking a compiler twice.
 
 ```
 +───────────────────────────────────────────────────────────────────────────────────+
@@ -66,28 +64,29 @@ Category I establishes the lifecycle boundaries governing how source code transf
 
 ### RP-1: Build Once on Ingress
 
-**Canonical Statement:** Compilation, containerization, and artifact packaging execute exactly once, triggered exclusively by the integration event (merge to the `main` trunk).
+**Canonical Statement:** Compile, package, and push the artifact exactly once, triggered exclusively when an approved pull request merges into `main`.
 
-**Systems Rationale:** A software build is a stateful transformation that consumes a snapshot of source code and resolves an external dependency graph. External registries (PyPI, npm, crates.io, Maven Central, Debian/Alpine mirrors) are dynamic networks subject to upstream package replacements, transitive dependency drift, and transient mirror discrepancies. Compilers also embed build-host metadata (timestamps, build IDs, glibc versions) unless strict reproducible builds are guaranteed. By compiling and packaging software at the precise moment source code integrates into `main`, the CI system captures the definitive binary manifestation of that commit. The resulting artifact is immutably indexed by a monotonic build sequence (`:b<N>`), the short commit SHA (`:sha-<commit12>`), and its cryptographic SHA-256 digest (`@sha256:<digest>`).
+**Bench Physics:** A build consumes a git source tree and resolves external state (Debian/Alpine package mirrors, crates.io, PyPI, npm, compiler timestamps). Wait five days after merging to `main` and compile again on a release tag, and you will not get the same bytes. On 2026-09-21, **ADR-0007** locked the `Vitki` reference pattern across the estate: `.forgejo/workflows/build.yml` fires on `push: branches: [main]`, compiles the artifact once, pushes the layers through internal `harbor-nginx` to `Harbor`, and stamps the manifest with a monotonic build sequence (`:b<N>`), the 12-char commit SHA (`:sha-<sha12>`), the moving staging pointer (`:uat`), and its immutable `@sha256:<digest>`.
 
-**Failure Mode & Anti-Pattern:** *The "Build-on-Tag" Anti-Pattern.* A team merges code to `main` on Wednesday and runs automated integration tests in UAT throughout the week. On the following Monday, an operator cuts release tag `v2.1.0`, which triggers a CI pipeline that invokes `docker build`. In the intervening five days, an upstream sub-dependency (such as an unpinned Debian security update or an npm patch release) published a subtle breaking change. The newly compiled production binary fails on startup due to a symbol mismatch, despite identical application source code passing every test in UAT.
+**The v1 Corpse:** *The Build-on-Tag Pipeline.* Prior to ADR-0007, repositories ran tests on merge to `main` and ran `docker build` a second time when a `vX.Y.Z` tag was pushed. Upstream base layers and dynamic libraries shifted between the UAT soak and the tag build, shipping a binary to production that had executed for zero seconds in staging.
 
-**Operational Verification Rule:** The primary build workflow (`.forgejo/workflows/build.yml` or `.github/workflows/build.yml`) triggers solely on `push: branches: [main]`. Release workflows (`release.yml`) are statically prohibited from invoking compiler toolchains (`cargo build`, `go build`, `npm run build`) or container build daemons (`docker build`, `podman build`, `buildah`). The repository linter `scripts/check-pipeline-purity.sh` fails the CI gate if build commands are discovered in release job definitions.
+**Mechanical Gate:** `.forgejo/workflows/build.yml` triggers strictly on `main` ingress. `scripts/check-pipeline-purity.sh` scans `.forgejo/workflows/release.yml` and fails the build if any compiler or image builder (`docker build`, `buildctl`, `cargo build`, `go build`, `npm run build`) appears in the release workflow.
 
 ---
 
 ### RP-2: Releases Never Rebuild
 
-**Canonical Statement:** The release lifecycle is an act of naming, not an act of creation; it associates an authorized Semantic Version tag with an existing, validated build digest and never invokes a compiler, bundler, or build daemon.
+**Canonical Statement:** A release is an administrative act of naming that binds a Semantic Version tag (`vX.Y.Z`) to an existing `:b<N>` digest in `Harbor`; release workflows never invoke a compiler, bundler, or image builder.
 
-**Systems Rationale:** Once an artifact is produced on ingress (`RP-1`) and validated in a staging or UAT environment, its physical bits have demonstrated operational stability. Invoking a compiler during the release phase mathematically invalidates all prior testing, because the newly generated binary has a different cryptographic identity. Under content-addressable storage standards (such as the OCI Image Specification v1.1 and Git tree objects), bits are addressed by their Merkle root hash. Releasing an artifact requires only calling the registry's Distribution API (`PUT /v2/<name>/manifests/<tag>`) to attach a human-readable name (`vX.Y.Z`) to the pre-existing digest descriptor.
+**Bench Physics:** In an OCI registry (`Harbor`), a tag is a 32-byte pointer to a manifest SHA-256 digest. When `:b42` has soaked in `:uat` and passed verification, its physical bytes are proven. Rebuilding code during the release step destroys that proof by minting a new hash. Under ADR-0007 (`Vitki` reference), cutting `v1.4.2` calls `scripts/harbor-artifact.sh retag`, which fetches the existing manifest JSON for `:b42` over the Docker Registry HTTP API v2 and `PUT`s that exact JSON to `/v2/<project>/<repo>/manifests/v1.4.2`. The operation completes in 200 milliseconds and transfers zero layer blobs.
 
-**Failure Mode & Anti-Pattern:** *Release-Time Compilation Panic.* During an active P0 production incident, an engineering team attempts to ship an emergency hotfix. The operator pushes tag `v1.8.4-hotfix.1`. The release pipeline begins compiling a massive C++/Rust dependency tree from scratch. Twelve minutes into the compilation, an external package registry experiences a transient 504 Gateway Timeout, aborting the build runner and corrupting local build caches. Production remains down for an additional forty minutes while engineers scramble to debug a compiler timeout for code that had already built successfully on `main` twenty minutes prior.
+**The v1 Corpse:** *Release-Time Compilation Lockout.* During an incident hotfix, a v1 tag-build workflow tried to recompile a full Rust/C++ workspace from scratch. Twelve minutes in, an external package CDN threw an HTTP 504, killing the release job when a pre-built ingress image from `main` was already sitting in `Harbor`.
 
-**Operational Verification Rule:** The release script (`scripts/harbor-artifact.sh retag <build-id> <semver-tag>`) operates exclusively through the OCI Registry v2 API. It inspects the manifest descriptor of build `:b<N>`, extracts its cryptographic digest, and submits a manifest `PUT` under `:vX.Y.Z` without transferring layer blobs. Verification is enforced in CI by asserting that the manifest digest of the new tag matches the build digest:
+**Mechanical Gate:** `release.yml` executes `scripts/harbor-artifact.sh retag` and asserts cryptographic digest equality between the source build and the new release tag before exiting:
+
 ```bash
-BUILD_DIGEST=$(crane digest "${REGISTRY}/${IMAGE}:b${BUILD_NUM}")
-RELEASE_DIGEST=$(crane digest "${REGISTRY}/${IMAGE}:${SEMVER_TAG}")
+BUILD_DIGEST=$(./scripts/harbor-artifact.sh digest "b${BUILD_NUM}")
+RELEASE_DIGEST=$(./scripts/harbor-artifact.sh digest "${SEMVER_TAG}")
 [[ "${BUILD_DIGEST}" == "${RELEASE_DIGEST}" ]] || exit 1
 ```
 
@@ -95,29 +94,29 @@ RELEASE_DIGEST=$(crane digest "${REGISTRY}/${IMAGE}:${SEMVER_TAG}")
 
 ### RP-3: Promotion by Reference
 
-**Canonical Statement:** Promoting an artifact across lifecycle environments (Dev $\to$ Staging/UAT $\to$ Production) is executed exclusively by updating declarative configuration references to an immutable digest, never by moving, copying, or re-pushing binary files.
+**Canonical Statement:** Advance software from `:uat` to production exclusively by updating declarative digest pointers in git manifests, never by copying, re-uploading, or re-bundling image layers across separate registries.
 
-**Systems Rationale:** Copying container images or re-uploading tarballs across disparate environment-specific registries introduces substantial supply-chain risk, storage bloat, and bit-rot. In a content-addressable architecture, an artifact repository (such as Harbor or enterprise OCI registries) acts as the immutable single source of truth. Promoting software from staging to production is a configuration state transition: the GitOps deployment manifest (`chart/values.yaml` or `values-prod.yaml`) in the configuration repository updates its digest pointer from the previous release to the newly approved digest.
+**Bench Physics:** Content-Addressable Storage in `Harbor` deduplicates every layer blob by its SHA-256 hash. Both the `:uat` deployment and the production deployment on `Norns` pull from the same canonical `Harbor` repository. Promoting `:b42` from `:uat` to production moves zero binary files; `scripts/release-pr.sh` writes `:b42`'s `@sha256:...` digest into `chart/values.yaml` and publishes the signed OCI Helm chart version to `norns-gitops`.
 
-**Failure Mode & Anti-Pattern:** *The Intermediate Jump-Box MITM.* An organization provisions isolated container registries for "Staging" and "Production." To promote a container, an automated script on an intermediate bastion host pulls the image from Staging, runs `docker tag`, and pushes to Production. An attacker who compromises the bastion host replaces the intermediate image layer with a malicious cryptominer prior to the push. Because the promotion script blindly pushed the locally tagged image, the compromised binary enters production without triggering registry-level provenance alerts.
+**The v1 Corpse:** *Bastion Pull-Tag-Push Drift.* Pulling an image onto an intermediate runner to run `docker tag` and `docker push` into a second registry re-serializes the manifest through the runner's local container daemon, frequently altering compression headers and mutating the canonical manifest `sha256` digest.
 
-**Operational Verification Rule:** Continuous deployment pipelines verify that the `image.digest` declared in production GitOps repositories matches the cryptographic digest recorded in the canonical artifact registry during the initial ingress build. The script `scripts/verify-promotion-provenance.sh` queries the registry audit trail and validates that no layer blobs were created or modified between the initial integration commit and the production deployment manifest update.
+**Mechanical Gate:** `scripts/check-release-tag.sh` queries `Harbor` directly during the release PR gate and verifies that the `image.digest` written in `chart/values.yaml` exists in `Harbor` and matches the manifest digest of `image.build` (`:b<N>`).
 
 ---
 
 ### RP-4: Tags for Humans, Digests for Runtime
 
-**Canonical Statement:** Workload manifests must declare images as `repository:tag@sha256:<digest>`; the mutable tag communicates human and semantic intent, while the immutable SHA-256 digest provides absolute kernel scheduling truth.
+**Canonical Statement:** Every production workload manifest must render container images in dual `repository:tag@sha256:<digest>` syntax; the tag is for human operators, and the SHA-256 digest is the scheduling truth for the kernel.
 
-**Systems Rationale:** In the OCI Distribution Specification, tags are mutable pointers defined in `/v2/<name>/tags/list`. If a Kubernetes pod spec or container supervisor requests an image by tag alone (e.g. `service:v1.4.0`), the underlying container engine (containerd, CRI-O) checks its local image cache. If node $A$ cached `v1.4.0` prior to an emergency registry retag and node $B$ pulls it afterward, the cluster executes two divergent binaries under the same nominal version. Furthermore, DNS hijacking or registry cache poisoning can inject malicious layers when tags are unpinned. Panning `@sha256:<digest>` forces the container runtime to verify the Merkle root of the image configuration and layer tarballs against the Linux kernel's cryptographic hash before mounting the root filesystem.
+**Bench Physics:** OCI tags are mutable pointers. If a Kubernetes Deployment specifies `image: harbor.ravenhelm.dev/platform/freyr-api:latest` or `:v1.4.0` without a digest, `containerd` resolves the tag against its local node cache (`IfNotPresent`) or pulls whatever currently sits at that tag (`Always`). When `urd` caches Monday's `:v1.4.0` and `skuld` pulls Tuesday's overwritten `:v1.4.0`, the cluster runs split-brain binaries under one label. Pinning `vitki:v1.4.2@sha256:7f9a...` gives operators readable `kubectl get pods` output while forcing `containerd` to verify the exact Merkle root and `ChainID` of every unpacked layer.
 
-**Failure Mode & Anti-Pattern:** *The Split-Brain Cluster Desynchronization.* An operations team detects a critical flaw in tag `v1.2.0`, pushes a fast-fix under the identical tag, and runs `kubectl rollout restart deployment/api`. Three worker nodes already had the previous `v1.2.0` image cached locally and reuse it without hitting the registry. Two freshly autoscaled worker nodes pull the new `v1.2.0` digest. The running deployment now consists of three pods executing the flawed code and two pods executing the patched code, emitting incompatible protobuf schemas across internal gRPC channels and crashing the message bus.
+**The v1 Corpse:** *The `freyr-api :latest` Auto-Roll (2026-09-16).* During the September 2026 audit, `freyr-api` was found running in production against a floating `:latest` tag without a digest pin. Every pod reschedule silently pulled the newest trunk build into production without a release PR or a human closer.
 
-**Operational Verification Rule:** GitOps linters, pre-commit hooks, and admission controllers (such as Kyverno, OPA Gatekeeper, or `scripts/check-release-tag.sh`) parse all workload manifests. Any container definition lacking an `@sha256:` digest pin is rejected immediately:
+**Mechanical Gate:** `scripts/check-release-tag.sh` and pre-merge linters in `norns-gitops` reject any production manifest whose `image:` string lacks a 64-character hex `@sha256:` pin:
+
 ```bash
-# Must match: <repo>/<name>:<tag>@sha256:<64-char-hex>
-grep -E 'image:\s+.*:[a-zA-Z0-9_.-]+@sha256:[a-f0-9]{64}' manifest.yaml || {
-    echo "ERROR: RP-4 Violation - Missing immutable @sha256 digest pin"
+grep -E 'image:\s+.*:[a-zA-Z0-9_.-]+@sha256:[a-f0-9]{64}' rendered-manifest.yaml || {
+    echo "FATAL: RP-4 Violation - Missing immutable @sha256 digest pin" >&2
     exit 1
 }
 ```
@@ -126,20 +125,19 @@ grep -E 'image:\s+.*:[a-zA-Z0-9_.-]+@sha256:[a-f0-9]{64}' manifest.yaml || {
 
 ### RP-5: Parity Precedes Promotion
 
-**Canonical Statement:** A release candidate must prove zero source code drift against the parent build commit; release pull requests modify configuration metadata, version manifests, and changelogs, never application source code.
+**Canonical Statement:** A release pull request must prove zero application source code drift against its parent build commit on `main`; it may modify only `chart/Chart.yaml`, `chart/values.yaml`, and `CHANGELOG.md`.
 
-**Systems Rationale:** Git structures repository history as a directed acyclic graph of immutable commit objects, each referencing an immutable tree object representing directory state. The ingress build on `main` compiled and tested a specific Git tree hash. When preparing a release, operators open a release pull request to update metadata files: Helm `Chart.yaml`, GitOps `values.yaml`, and `CHANGELOG.md`. If an operator modifies application source code (`src/`, `cmd/`, `pkg/`) within the release PR, that code has bypassed the comprehensive integration test suite executed on the parent build commit. Proving byte-level parity between the source trees ensures that what is being released is precisely what was compiled and tested.
+**Bench Physics:** Because `release.yml` never compiles code (`RP-2`), any change to `src/`, `Cargo.toml`, `go.mod`, or application assets committed onto a `release/vX.Y.Z` branch will never be compiled into the released binary. Worse, it lies in git history by making `vX.Y.Z` look as if it contains source changes that do not exist inside the `:b<N>` container image. Furthermore, the three release metadata files must agree with each other - the **Parity Triangle**: Git tag `vX.Y.Z` $\equiv$ `chart/values.yaml` `image.tag` $\equiv$ `chart/Chart.yaml` `appVersion`.
 
-**Failure Mode & Anti-Pattern:** *The "One Last Quick Fix" Trap.* While assembling a release PR for `v3.0.0`, a developer spots an unhandled `NullPointerException` in an authentication filter. Reluctant to delay the release by opening a separate PR to `main` and waiting for another full ingress build sequence, the developer commits the fix directly into the release branch alongside the `Chart.yaml` version bump. Because the release pipeline does not execute the full multi-hour integration test suite (per `RP-2`), the "quick fix" introduces an unhandled deadlock that brings down the production API gateway upon deployment.
+**The v1 Corpse:** *The Drive-By Release Branch Patch.* An operator preparing a release branch commits a "two-line config fix" alongside the version bump. The release workflow retags the pre-existing `:b42` image, shipping the old unpatched binary while git `main` shows the bug fixed.
 
-**Operational Verification Rule:** Release validation gates mandate the execution of `scripts/check-release-source-parity.sh`. This script runs `git diff --name-only <parent-build-commit> HEAD` and matches the resulting file list against a strict whitelist of configuration metadata:
+**Mechanical Gate:** Every release PR runs two mandatory scripts before merge: `scripts/check-release-tag.sh` (enforcing the Parity Triangle and Harbor digest existence) and `scripts/check-release-source-parity.sh`:
+
 ```bash
-ALLOWED_PATTERN="^(chart/.*|values.*\.yaml|CHANGELOG\.md|package\.json|docs/.*)$"
-DISALLOWED_FILES=$(git diff --name-only "${PARENT_BUILD_COMMIT}" HEAD | grep -vE "${ALLOWED_PATTERN}" || true)
-
-if [[ -n "${DISALLOWED_FILES}" ]]; then
-    echo "FAIL: RP-5 Violation. Source code drift detected in release candidate:"
-    echo "${DISALLOWED_FILES}"
+FORBIDDEN_DIFFS=$(git diff --name-only origin/main | grep -vE '^(chart/|CHANGELOG\.md|docs/runbooks/release\.md)' || true)
+if [[ -n "${FORBIDDEN_DIFFS}" ]]; then
+    echo "FATAL: RP-5 Violation - Release PR modifies application source files:" >&2
+    echo "${FORBIDDEN_DIFFS}" >&2
     exit 1
 fi
 ```
@@ -148,7 +146,7 @@ fi
 
 ## Category II: Multi-Surface Rails
 
-Category II governs the synchronization and distribution mechanisms required when a single platform delivers software across multiple physical computing surfaces.
+Category II governs repositories whose code ships across more than one physical surface: cluster pods on Rail A, workstation CLI/TUI tools on Rail B, and signed client applications on Rail C.
 
 ```
 +───────────────────────────────────────────────────────────────────────────────────+
@@ -156,71 +154,62 @@ Category II governs the synchronization and distribution mechanisms required whe
 |                                                                                   |
 |  [ Ingress Build :b<N> ]                                                          |
 |         │                                                                         |
-|         ├─► Rail A: Server GitOps (Kubernetes / OCI Helm / Harbor)                |
+|         ├─► Rail A: Server GitOps (Norns K3s / OCI Helm / Harbor)                 |
 |         │                                                                         |
-|         ├─► Rail B: Workstation CLI/TUI (Homebrew Tap / Sandboxed Inreplace)      |
+|         ├─► Rail B: Workstation CLI/TUI (nate/tools Tap / Sandboxed Inreplace)    |
 |         │                                                                         |
-|         └─► Rail C: Sovereign Desktop Apps (Signed Archives / Minisign Ed25519)   |
+|         └─► Rail C: Sovereign Client Apps (Idunn / Minisign Ed25519 Manifests)    |
 |                                                                                   |
-|  RP-6: Multi-Surface Lockstep       --> All rails release in lockstep             |
-|  RP-7: Sandboxed Inreplace          --> Zero-drift package manager compilation    |
-|  RP-8: Sovereign Binary Distro      --> Cryptographically signed client binaries  |
+|  RP-6: Multi-Surface Lockstep       --> All rails ship in the same release run    |
+|  RP-7: Sandboxed Inreplace          --> Zero-drift Homebrew source compilation    |
+|  RP-8: Sovereign Binary Distro      --> Detached Ed25519 signatures verified live |
 +───────────────────────────────────────────────────────────────────────────────────+
 ```
 
 ### RP-6: Multi-Surface Lockstep
 
-**Canonical Statement:** Repositories providing services across multiple physical surfaces (such as server backends and operator workstation CLIs) must execute all applicable delivery rails in lockstep within the same release cycle.
+**Canonical Statement:** Dual-surface repositories (such as `Ullr`/`Yager`, which ship both a `Norns` K3s server workload and a workstation CLI) must execute Rail A (Harbor OCI + `norns-gitops`) and Rail B (`nate/tools` Homebrew tap bump + local reinstall proof) in lockstep on every release.
 
-**Systems Rationale:** Modern platforms rarely operate as isolated web services; they are systems composed of backend daemons, administrative CLIs, terminal user interfaces (TUIs), and background workers. When backend services introduce API contract modifications, schema evolutions, or authz changes, any operator CLI running an older version becomes an active operational hazard. In multi-surface repositories (e.g., Ullr/Yager), releasing a server component (Rail A) without concurrently publishing the matching workstation package (Rail B) creates an immediate temporal window of vulnerability where administrative tooling emits obsolete payloads.
+**Bench Physics:** A server daemon and its operator CLI are two halves of one wire protocol. When the cluster pod advances to `v1.4.0` on `Norns` while the operator's macOS workstation still runs `v1.3.2` (or runs a stale shim pretending to be current), the next CLI command fired from the bench sends an obsolete payload or misparses the server's response. Under ADR-0007, dual-surface repos execute both rails in a single release transaction.
 
-**Failure Mode & Anti-Pattern:** *The Stale CLI Database Corruption.* A platform backend is upgraded to `v2.4.0`, which alters the database state machine for tenant isolation. The release engineer forgets to update the private Homebrew tap formula for the operational CLI. An on-call engineer diagnosing an alert an hour later executes `tool tenant repair` using CLI version `v2.3.9`. The older CLI binary submits an administrative RPC using the deprecated single-tenant schema, stripping foreign key constraints and corrupting multi-tenant database records across production.
+**The v1 Corpse:** *The Stale `doom` Shim at `PATH` Index 5 (2026-08-13).* Running `doom update` under the old self-updater invoked `uv tool install --force --editable`, planting a binary shim at `~/.local/bin/doom` (`PATH` index 5) ahead of Homebrew's `/opt/homebrew/bin/doom` (`PATH` index 9) that pointed at an old worktree while printing the exact same `--version` string.
 
-**Operational Verification Rule:** Release pipelines in multi-surface repositories enforce an atomic multi-rail release matrix. The workflow `.forgejo/workflows/release.yml` defines concurrent jobs for Rail A (Harbor OCI chart publication) and Rail B (Homebrew tap formula update PR). The pipeline linter asserts that every release artifact shares an identical SemVer tag:
-```bash
-# Ensure formula version matches application release tag
-FORMULA_VER=$(grep -E 'url ".*/v[0-9.]+\.tar\.gz"' Formula/yager.rb | sed -E 's/.*v([0-9.]+)\.tar\.gz"/\1/')
-[[ "${FORMULA_VER}" == "${RELEASE_SEMVER}" ]] || {
-    echo "ERROR: RP-6 Violation - Rail B formula version (${FORMULA_VER}) out of lockstep with release (${RELEASE_SEMVER})"
-    exit 1
-}
-```
+**Mechanical Gate:** For dual-surface repositories, `.forgejo/workflows/release.yml` runs both the Harbor OCI promotion job (Rail A) and the `nate/tools` tap formula commit job (Rail B). On the workstation, post-release verification asserts both `which -a <tool>` path hygiene and exact build-coordinate output (`<tool> --version` matching `vX.Y.Z+b<N>.<sha12>`).
 
 ---
 
 ### RP-7: Sandboxed Inreplace for Ecosystem Tooling
 
-**Canonical Statement:** When packaging workstation tools for package managers that compile from source, version manifests within the canonical repository must remain uncommitted; version substitution must occur dynamically inside the package manager's isolated build sandbox via `inreplace`.
+**Canonical Statement:** For source-compiled workstation formulas in the private Homebrew tap (`nate/tools`), keep the repository's language manifest (`Cargo.toml`, `pyproject.toml`) untouched on release PRs and inject the release version dynamically inside the Homebrew build sandbox via `inreplace`.
 
-**Systems Rationale:** Package management ecosystems like macOS Homebrew require source-based formulas to download an immutable tarball of a Git tag and compile the tool locally using the target machine's toolchain. However, modern language compilers (such as Rust's Cargo or Go's module system) read their version string directly from files in the repository tree (`Cargo.toml`, `go.mod`). If a release engineer commits a version bump directly to `Cargo.toml` in the repository, that commit creates an application source diff that directly violates `RP-5` (Parity Precedes Promotion). By keeping `Cargo.toml` pegged to a development sentinel (`0.0.0-dev`) in the repository and performing an automated `inreplace` regex substitution inside the Homebrew formula sandbox during `brew install`, source parity is preserved in git while producing a correctly versioned local binary.
+**Bench Physics:** If you edit `Cargo.toml` on a release branch to change `version = "0.0.0-dev"` to `version = "1.4.2"`, you modify a tracked source file and trip `check-release-source-parity.sh` (`RP-5`). Worse, bumping `Cargo.toml` dirties `Cargo.lock`, forcing a rebuild and breaking byte parity with the ingress commit. By leaving `Cargo.toml` fixed in git and running Homebrew's `inreplace` macro inside the isolated temporary build directory during `brew install`, the git tree keeps 100% source parity with `:b<N>` while the compiled `/opt/homebrew/bin/<tool>` binary reports the exact SemVer and build coordinate.
 
-**Failure Mode & Anti-Pattern:** *The Version-Bump Merge Conflict Cascade.* A team commits a version bump to `Cargo.toml` on every release branch. When two release branches or cherry-pick hotfixes are created concurrently, their `Cargo.lock` and `Cargo.toml` files enter severe merge conflicts. An operator attempting to resolve the conflict accidentally overwrites a crate dependency pin, resulting in a workstation CLI binary that compiles with an unstable upstream library.
+**The v1 Corpse:** *Version-Bump Lockfile Churn.* Committing version bumps to `Cargo.toml` on release branches triggered `check-release-source-parity.sh` failures and caused constant merge conflicts across concurrent `Doom` worker worktrees.
 
-**Operational Verification Rule:** The release parity script (`scripts/check-release-source-parity.sh`) verifies that `Cargo.toml` has not been modified between the integration build commit and the release commit. The Homebrew formula in the tap repository (`Formula/<tool>.rb`) is audited using Homebrew's strict formula linter and verified via sandbox execution:
+**Mechanical Gate:** `check-release-source-parity.sh` blocks any release PR that touches `Cargo.toml` or `Cargo.lock`. The tap formula (`Formula/yager.rb` in `nate/tools`) performs the substitution inside `def install`:
+
 ```ruby
-# In Formula/tool.rb:
 def install
-  # Sandboxed inreplace preserves repository source parity
   inreplace "Cargo.toml", 'version = "0.0.0-dev"', "version = \"#{version}\""
   system "cargo", "install", *std_cargo_args
 end
 ```
-Verification passes if `brew install --build-from-source Formula/<tool>.rb` produces a binary whose `--version` output precisely matches `#{version}` without requiring changes to git source trees.
 
 ---
 
 ### RP-8: Sovereign Binary Distribution
 
-**Canonical Statement:** Standalone client applications and desktop tools must distribute via self-contained, signed archives accompanied by detached cryptographic signatures (Minisign or Ed25519) and verified against machine-readable update manifests.
+**Canonical Statement:** Client desktop and edge bundles (`Idunn`) must ship as immutable archives paired with detached Ed25519 cryptographic signatures (`Minisign`) and verified against signed update manifests before installation.
 
-**Systems Rationale:** Client desktop applications and offline operator diagnostics execute outside the protected perimeter of Kubernetes clusters and corporate networks. Operating system gatekeepers (macOS Gatekeeper, Windows SmartScreen, Linux IMA) and automated in-app updater frameworks (such as Sparkle or Tauri updater) demand verifiable cryptographic provenance. Distributing raw, unsigned binaries over plain HTTPS leaves endpoints vulnerable to TLS interception, compromised content delivery networks (CDNs), and rogue bucket takeovers. Detached asymmetric signatures using Edwards-curve digital signatures (Ed25519 via Minisign) guarantee non-repudiation and verify that the binary was signed by an offline release authority before execution.
+**Bench Physics:** Client binaries run on endpoints outside the `Norns` cluster boundary. Relying on HTTPS transport alone means a compromised CDN token or a misconfigured object bucket can serve a trojan binary to every workstation on auto-update. Under `RP-8`, the release workflow signs the ingress-built client archive with an offline-rooted Ed25519 Minisign key (`minisign -S -m <bundle>.tar.zst`) and writes the detached `.minisig` signature and `sha256` hash into the update manifest (`latest.json`).
 
-**Failure Mode & Anti-Pattern:** *The Compromised Distribution Bucket.* An engineering team hosts desktop installer binaries in an AWS S3 bucket behind a CDN. An attacker gains access to an abandoned CDN API token and overwrites the application tarball with a weaponized trojan. Because the client application's updater framework checked only HTTP status codes and TLS validity without verifying an asymmetric Ed25519 signature against an embedded public key, hundreds of client workstations download and execute the malware.
+**The v1 Corpse:** *Unsigned Tarball Overwrites.* Serving raw client archives from an object store with only HTTP 200 status checks allowed truncated downloads and mismatched builds to overwrite working local installations without halting the updater.
 
-**Operational Verification Rule:** The release pipeline generates detached Minisign signatures for all client artifacts (`minisign -S -m <artifact>.tar.gz -s <secret-key>`). The resulting update manifest (`latest.json`) is populated with the artifact URL, SHA-256 digest, and base64-encoded signature. A pre-publication test step downloads the bundle to an ephemeral environment and executes:
+**Mechanical Gate:** Before publishing `latest.json`, the release pipeline runs an out-of-band verification check against the uploaded archive and signature:
+
 ```bash
-minisign -V -p "${MINISIGN_PUBKEY}" -m "${ARTIFACT_TARBALL}" -x "${ARTIFACT_TARBALL}.minisig" || {
-    echo "ERROR: RP-8 Violation - Detached signature verification failed!"
+minisign -V -p "${MINISIGN_PUBKEY}" -m "${BUNDLE_ARCHIVE}" -x "${BUNDLE_ARCHIVE}.minisig" || {
+    echo "FATAL: RP-8 Violation - Detached Ed25519 signature verification failed!" >&2
     exit 1
 }
 ```
@@ -229,13 +218,13 @@ minisign -V -p "${MINISIGN_PUBKEY}" -m "${ARTIFACT_TARBALL}" -x "${ARTIFACT_TARB
 
 ## Category III: Deployment Authority & Cutover Governance
 
-Category III defines who—or what—holds the authority to modify production systems, governs the lifecycle of pull request merges, and erects legalistic boundaries around high-impact architectural cutovers.
+Category III establishes who may mutate production state, connects PR merge authorization directly to live deployment, separates routine deploys from architectural cutovers, and strips ambient credentials from CI runners.
 
 ```
 +───────────────────────────────────────────────────────────────────────────────────+
 | CATEGORY III: DEPLOYMENT AUTHORITY & CUTOVER GOVERNANCE                           |
 |                                                                                   |
-|  [ Approved Release PR ] ─────────► RP-10: Merge-Then-Deploy                      |
+|  [ Approved Release PR ] ─────────► RP-10: Merge-Then-Deploy + Expected-Fire Gate |
 |                                            │                                      |
 |                                            ▼                                      |
 |  [ Production Cluster / Host ] ───► RP-9: Declarative Convergence Authority       |
@@ -245,213 +234,209 @@ Category III defines who—or what—holds the authority to modify production sy
 |                                     (Repo/DB/Transport Swap != Routine Deploy)    |
 |                                                                                   |
 |  [ CI Pipeline Execution ] ───────► RP-12: Zero Ambient CI Authority              |
-|                                     (Ephemeral AppRoles / Scoped Push Access)     |
+|                                     (OpenBao AppRoles + Action-Hash Elevation)    |
 +───────────────────────────────────────────────────────────────────────────────────+
 ```
 
 ### RP-9: Declarative Convergence Authority
 
-**Canonical Statement:** Production environments and runtime clusters must never accept imperative, push-based deployments from engineer workstations or CI runner scripts; deployment is the exclusive authority of an in-cluster declarative reconciler.
+**Canonical Statement:** Production hosts (`odin`, `hrafngud`) and clusters (`Norns` K3s) never accept imperative push deployments from laptops or CI runners; an in-cluster declarative reconciler (Argo CD tracking `norns-gitops`) is the sole applying authority.
 
-**Systems Rationale:** Imperative deployment mechanisms (`kubectl apply`, `helm upgrade`, `docker-compose up` over SSH) suffer from ambient workstation contamination: local environment variables, uncommitted configuration tweaks, divergent CLI tool versions, and unauthenticated terminal state bleed into production. Furthermore, imperative push mechanisms provide zero drift correction: if a cluster resource is manually edited or corrupted, an imperative system never detects or repairs the divergence. A declarative convergence engine (such as Argo CD) operates continuously inside the cluster, polling Git as the single source of truth, calculating resource diffs, and driving runtime state toward declared state via native Kubernetes API controllers.
+**Bench Physics:** Running `kubectl apply`, `helm upgrade`, or direct SSH edits on `odin` leaks uncommitted workstation state into production and leaves zero self-healing loop when a node restarts. Under `RP-9`, every production mutation lands as a reviewed git commit in the declarative control repository (`norns-gitops`). Argo CD inside `Norns` (`urd`, `verdandi`, `skuld`) polls the repository, computes the resource diff, and converges the cluster toward the pinned `@sha256:` digest.
 
-**Failure Mode & Anti-Pattern:** *The "Deploy from Laptop" Disaster.* During a late-night incident, a senior engineer runs `helm upgrade --set image.tag=v2.0.1` from their local terminal. The engineer fails to notice that their shell had `HELM_VALUES=values-staging.yaml` exported. The command silently overwrites production memory allocations, replica counts, and database URLs with staging parameters, instantly crashing the production data tier.
+**The v1 Corpse:** *Direct SSH Edits & Stale Checkouts on Host.* Editing files directly over SSH or pulling into detached checkouts (`~/var/apps/import-backup` sitting 2 commits behind in detached HEAD while PR #22 had already merged to `main`) left production running ghost configurations that vanished on the next container recreate.
 
-**Operational Verification Rule:** Ingress firewall rules and cluster RBAC strictly prohibit inbound connections to the Kubernetes API server from developer subnets and CI runner IP blocks. The continuous integration pipeline terminates upon creating or merging a GitOps pull request; it possesses no cluster-admin kubeconfigs. Compliance is verified by continuously scanning cluster audit logs: any mutating request (`POST`, `PUT`, `PATCH`) to production namespaces originating from a non-Argo CD service account triggers an immediate automated security alert.
+**Mechanical Gate:** CI workflows possess zero production `KUBECONFIG` admin tokens; their authority ends at committing the digest bump to `norns-gitops`. Any manual drift applied to `Norns` namespaces is overwritten by Argo CD's automated self-heal sync loop and flagged in audit telemetry.
 
 ---
 
 ### RP-10: Merge-Then-Deploy
 
-**Canonical Statement:** Approval to merge an approved release pull request is explicit authorization to ship; upon merge, deployment to production proceeds autonomously to completion without secondary manual pauses, holding patterns, or deferred execution.
+**Canonical Statement:** Approval to merge a release PR is explicit authorization to deploy that release to production immediately, verify that the post-merge workflow actually fired, and prove it running live.
 
-**Systems Rationale:** The anti-pattern of "merge on Thursday, deploy on Tuesday" creates severe state desynchronization between version control and production reality. The integration trunk (`main`) and the GitOps release manifests represent the canonical declared state of the system. When commits sit merged but undeployed ("zombie commits"), subsequent emergency hotfixes must either branch from an undeployed trunk or cherry-pick under intense pressure, dramatically increasing the probability of regression. Merging must be recognized as the definitive, irreversible decision to ship, binding review, testing, artifact retagging, GitOps manifest synchronization, and runtime verification into an uninterrupted atomic pipeline.
+**Bench Physics:** Letting merged commits sit undeployed on `main` turns trunk into a minefield: the next engineer who needs to ship an urgent fix is forced to deploy somebody else's unverified changes along with their own. Under `RP-10`, the moment Nate approves a PR (*"merge it"* / *"approved, ship"* / *"LGTM merge"*), the supervisor session squash-merges the PR and immediately rides the deployment rail to completion. Crucially, because a workflow that never triggers reports zero failures, the closer must verify **expected-fire presence**: confirming that the merge commit actually spawned a `build.yml` / `release.yml` run ID on the code host.
 
-**Failure Mode & Anti-Pattern:** *The Stale Trunk Collision.* An engineering team merges a massive API refactor into `main` on Friday afternoon, intending to deploy it manually the following week. On Sunday morning, an unhandled zero-day vulnerability is disclosed in an upstream library. An on-call engineer attempts to patch the vulnerability, but cannot merge and deploy their fix through standard channels without also deploying the untested Friday refactor. The team is forced to construct an ad-hoc emergency release pipeline, leading to broken builds and a five-hour deployment delay.
+**The v1 Corpse:** *The Silent Non-Fire on `main` (2026-09-16) & Merged-Not-Running PRs (2026-09-13).* On 2026-09-13, three merged PRs were reported complete while `the-work` masthead was never redeployed. Three days later, on 2026-09-16, `deploy.yml` silently failed to fire on 1 of 24 pushes to `main`. Because 23 runs succeeded and 0 failed, commit statuses stayed green while production ran yesterday's binary.
 
-**Operational Verification Rule:** Release pipelines trigger automatically upon the PR merge event (`pull_request.closed && pull_request.merged == true`). The workflow contains zero manual pause gates, sleep delays, or interactive prompts. If deployment reconciliation or post-deploy health verification encounters a failure, the pipeline does not stop in an intermediate broken state; it automatically initiates an automated rollback sequence (`RP-14`).
+**Mechanical Gate:** The Delivery Closer queries the Forgejo Actions API for the exact `merge_commit_sha` immediately after merging. If zero workflow runs exist for that SHA within 30 seconds, the pipeline fails closed on a missing-trigger alarm before ever checking job status.
 
 ---
 
 ### RP-11: Cutovers Require ADRs
 
-**Canonical Statement:** An operational change that modifies the serving architecture, repository implementation, datastore engine, or transport protocol is an architectural cutover, not a deployment; cutovers require an accepted Architectural Decision Record (ADR), an expand-contract data migration plan, and formal human authorization.
+**Canonical Statement:** Any change that swaps a deployed service's codebase, replaces a datastore engine, removes a transport protocol, or alters cluster RBAC boundaries is an architectural cutover, not a deploy; it requires a ratified ADR, a verified data-migration plan, a pre-flight permission proof (`kubectl auth can-i`), and explicit human cutover approval.
 
-**Systems Rationale:** A routine deployment operates within established architectural boundaries: it updates application binaries, adds backward-compatible database columns, or adjusts environment variables. An architectural cutover modifies the boundary conditions themselves: swapping PostgreSQL for ClickHouse, replacing RabbitMQ with NATS JetStream, or migrating to a rewritten repository codebase. Such mutations alter data-at-rest formats and distributed state guarantees. Deploying an architectural replacement under the guise of a routine version bump bypasses data parity validation, shadow traffic analysis, and decommissioning protocols, guaranteeing unrecoverable data corruption.
+**Bench Physics:** A deployment updates an image digest inside an unchanged architectural contract. A cutover changes the contract itself. Treating a cutover as a routine version bump skips dual-write migration windows, strands live state, and breaks RBAC mid-rollout. Furthermore, any deploy that introduces new SQL migrations or new Kubernetes resource kinds must verify migration execution and deployer RBAC before merge.
 
-**Failure Mode & Anti-Pattern:** *The Bifrost Disaster (ADR-011).* In mid-2026, an autonomous engineering session attempted to upgrade an internal tool gateway service ("Bifrost"). Rather than deploying an incremental update, the session substituted an entirely different repository codebase, changed the database schema, and severed active transport layers in a single pull request labeled as a routine version bump. The deployment executed immediately, severing active agent workflows, dropping live queue messages, and stranding unmigrated database records. This catastrophe necessitated the codification of ADR-011 (The Cutover Doctrine).
+**The v1 Corpse:** *The `Bifrost` Cutover Incident (`ADR-011`, 2026-07-18) & The `RAV-2086` Deployer RBAC Blindspot (2026-09-29).* On 2026-07-18, an autonomous session swapped the `Bifrost` MCP gateway's serving stack and backing store inside a routine PR without an ADR or migration plan, dropping live fleet traffic. On 2026-09-29 (`RAV-2086`), `bifrost` PR #37 added `PrometheusRule` resources and failed immediately on first deploy because nobody ran `kubectl auth can-i create prometheusrules --as=system:serviceaccount:bifrost:bifrost-deployer` during plan verification.
 
-**Operational Verification Rule:** Static analysis tools in CI inspect release pull requests for cutover triggers: changes to database connection schemes, deletion of active transport adapters, repository URL substitutions in Helm charts, or wholesale schema drops. When a cutover trigger is detected, the pipeline halts with `EXIT_CODE=CUTOVER_GATE_HALT`. The pipeline resumes only if an accepted ADR file is present in `docs/architecture/decisions/` and a cryptographic Valkyrie cutover elevation token is supplied in the release metadata.
+**Mechanical Gate:** CI diffs release PRs for cutover signatures (datasource scheme changes, new CRD kinds in `chart/templates/`, transport removals, or unapplied `migrations/*.sql`). Any match halts the pipeline unless an accepted ADR link is bound, `apply-migrations.sh` is wired into the rollout hook, and `kubectl auth can-i` passes against every rendered resource kind in `chart/templates/`.
 
 ---
 
 ### RP-12: Zero Ambient CI Authority
 
-**Canonical Statement:** Continuous integration runners must possess zero ambient infrastructure-level admin credentials or permanent cloud access keys; pipeline execution occurs with ephemeral, scoped tokens restricted to the immediate task.
+**Canonical Statement:** CI runners and automation workers hold zero permanent cluster-admin tokens, static cloud keys, or human personal access tokens (PATs); routine jobs authenticate via short-lived, service-scoped `OpenBao` AppRoles, and privileged mutations require single-use **Action-Hash Elevation (Valkyrie MFAA)** tokens.
 
-**Systems Rationale:** Continuous integration runners execute arbitrary code: third-party dependencies, pull request scripts, Dockerfiles, and community GitHub Actions. If a runner environment holds permanent cloud credentials (`AWS_ACCESS_KEY_ID`), cluster-admin kubeconfigs, or database superuser passwords, any compromised dependency in the build tree can exfiltrate those secrets. Under the principle of Zero Ambient Authority, CI runners operate with minimal base privileges. When elevated operations (such as pushing an OCI image to a specific project) are required, the runner acquires a short-lived, cryptographically scoped token through OpenID Connect (OIDC) or OpenBao AppRole authentication, with a time-to-live (TTL) measured in minutes.
+**Bench Physics:** CI runners execute third-party dependencies and container build steps. Any permanent admin token injected into a runner environment is one compromised package away from exfiltration. Worse, storing raw secrets in Kubernetes manifests without neutralizing client-side annotations leaks the secret into plaintext metadata. Under **The Zero-Ambient Elevation Doctrine**, runners authenticate with their own narrow `OpenBao` AppRole (scoped strictly to their repository and Harbor project) and never borrow a human operator's PAT.
 
-**Failure Mode & Anti-Pattern:** *The Poisoned Dependency Runner Exploit.* A project's CI configuration includes permanent AWS administrative credentials stored in repository secrets. A malicious actor publishes a compromised version of an npm linting plugin used by the repository. During a routine pull request build, the compromised plugin executes an obfuscated post-install script, reads `AWS_SECRET_ACCESS_KEY` from the environment, and transmits it to a command-and-control server. The attacker uses the stolen credentials to take complete control of the organization's cloud infrastructure.
+**The v1 Corpse:** *The `rig-ci` Annotation Leak (2026-09-29) & The `frs #88` Personal PAT Outage (2026-10-08).* On 2026-09-29, applying a Secret with `kubectl apply` stamped the plaintext `rig-ci` Harbor robot token straight into the `kubectl.kubernetes.io/last-applied-configuration` annotation, readable by any principal with metadata view rights. On 2026-10-08 (`frs #88`), `forgejo-runner-scheduler` control loops ran using an operator's personal PAT instead of the service's own credential, breaking KEDA autoscaling across the runner fleet the moment personal token scopes shifted.
 
-**Operational Verification Rule:** Security linters audit CI workflow definitions before execution. Pipelines referencing static, long-lived administrator secrets are blocked. Workflows must exchange GitHub/Forgejo OIDC JWTs for short-lived cloud credentials using scoped trust policies:
-```yaml
-# Enforce short-lived OIDC exchange; static secret keys forbidden
-- name: Authenticate to Vault/Harbor
-  uses: ravenhelm/vault-auth-action@v1
-  with:
-    role: "ci-harbor-pusher-vitki"
-    jwt: "${{ secrets.FORGEJO_OIDC_TOKEN }}"
-    ttl: "10m"
-```
+**Mechanical Gate:** Workflows authenticate to `OpenBao` via short-lived AppRole/OIDC tokens (`ttl: 10m`) to fetch repository-scoped Harbor push credentials. Secret syncs in Kubernetes use server-side apply (`kubectl apply --server-side`) or ExternalSecrets from `OpenBao` so `last-applied-configuration` never touches a Secret resource.
 
 ---
 
-## Category IV: Verification & Observability
+## Category IV: Verification, Rollback & Custody Hygiene
 
-Category IV governs the empirical proof of running systems, automated failure recovery, semantic contract enforcement, and non-repudiable audit custody.
+Category IV enforces live runtime proof over shell exit codes, instantaneous pointer rollback, strict Semantic Versioning contracts, coverage-verified audit ledgers, blast-radius isolation, and `.bare` git worktree custody.
 
 ```
 +───────────────────────────────────────────────────────────────────────────────────+
-| CATEGORY IV: VERIFICATION & OBSERVABILITY                                         |
+| CATEGORY IV: VERIFICATION, ROLLBACK & CUSTODY HYGIENE                             |
 |                                                                                   |
-|  [ Deployment Reconciled ] ─► RP-13: Shell Success Is Not Proof (Probe Endpoints) |
+|  [ Deployment Reconciled ] ─► RP-13: Shell Success Is Not Proof (Live + Grep Gate)|
 |                                      │                                            |
 |                                      ▼                                            |
-|  [ Health Probe Failed? ] ──► RP-14: Fail-Closed Rollback (Instant Revert)        |
+|  [ Health Probe Failed? ] ──► RP-14: Fail-Closed Rollback (Instant Digest Revert) |
 |                                      │                                            |
 |                                      ▼                                            |
-|  [ Contract Evolution ] ────► RP-15: Strict SemVer Contract (Breaking = MAJOR)   |
+|  [ Contract Evolution ] ────► RP-15: Strict SemVer Contract (Breaking = MAJOR)    |
 |                                      │                                            |
 |                                      ▼                                            |
-|  [ Forensic Audit Log ] ────► RP-16: Immutable Audit Ledgers (Cosign / Rekor)     |
+|  [ Forensic Audit Log ] ────► RP-16: Immutable Ledgers & Non-Empty Checksums      |
 |                                      │                                            |
 |                                      ▼                                            |
-|  [ Security Isolation ] ────► RP-17: Separation of Blast Radii (App vs Control)   |
+|  [ Security Isolation ] ────► RP-17: Separation of Blast Radii (Valkyrie MFAA)    |
 |                                      │                                            |
 |                                      ▼                                            |
-|  [ Operator Environment ] ──► RP-18: Clean Worktree Custody (No git stash)       |
+|  [ Operator Environment ] ──► RP-18: Clean Worktree Custody (.bare + No Stash)    |
 +───────────────────────────────────────────────────────────────────────────────────+
 ```
 
 ### RP-13: Shell Success Is Not Proof
 
-**Canonical Statement:** A pipeline step or shell command returning exit code `0` is an unverified assertion; a deployment is proven complete only when the running system satisfies runtime health probes, version endpoints, and network interface responses on the live infrastructure.
+**Canonical Statement:** Exit code `0`, HTTP `200 OK` on an auth probe, or a passing unit test suite is never proof that a feature shipped or works; every release must prove both **artifact presence** (every advertised construct exists in the shipped artifact) and **live reachability** (the production socket responds with the new build coordinate and exercises the live code path).
 
-**Systems Rationale:** Shell commands routinely mask runtime failures. A command such as `kubectl apply -f deployment.yaml` or `helm upgrade --install` returns exit code `0` the moment the Kubernetes API server accepts the object definition, long before container pods are scheduled, images are pulled, or application runtimes boot. Similarly, piped shell commands (`kubectl ... | grep ...`) mask underlying non-zero exits unless `set -o pipefail` is strictly configured. A deployment cannot be reported as successful based on client-side CLI responses; it requires empirical, end-to-end verification over live network interfaces asserting HTTP 200 responses, schema version matching, and healthy readiness probes.
+**Bench Physics:** Shell pipelines lie whenever exit codes are masked (`unittest | tail -5`), whenever endpoints return HTTP 200 with empty capability sets (`Harbor`'s `/service/token` returning `200 OK` with `"access": []` on bad credentials), or whenever unit tests exercise dead code that nothing in `main()` ever wires up. Proving a release requires two independent receipts: an **Artifact-Grep Gate** proving the shipped schema/binary actually contains what `CHANGELOG.md` claims, and a **Live Reachability Probe** hitting the production endpoint over the wire.
 
-**Failure Mode & Anti-Pattern:** *The "Green Pipeline, Crashing Cluster" Illusion.* A release pipeline executes `helm upgrade` and immediately marks the release step with a green checkmark. In production, the new application container image fails to start due to a missing runtime environment variable, entering a permanent `CrashLoopBackOff`. Because the pipeline relied on Helm's submission exit code rather than polling runtime health, engineers celebrate a successful deploy while customer traffic is routed to dying pods.
+**The v1 Corpse:** *The Ten Ghosts of 2026-09-09 & The `DIS 1.8` Fiction Release (2026-10-09).* On 2026-09-09, ten merged features across the fleet sat with 73 green unit tests and zero callers in production (`wire.py`, `vodozemac-bridge`, `ensure_receiver()`). On 2026-10-09, `DIS` PR #11 deployed `v1.8.0` advertising seven new constructs on the live website that had zero matches in `vocabulary/`, `shapes/`, `cue/`, or `tests/`.
 
-**Operational Verification Rule:** Release pipelines enforce an active post-sync runtime proof phase (`scripts/verify-runtime-proof.sh`). The script queries the live service endpoint over the production network, asserting HTTP response status, version payload equality, and zero container crash loops:
-```bash
-# Verify live running system matches expected version
-LIVE_VERSION=$(curl -sSf --max-time 5 "https://${SERVICE_HOST}/api/v1/version" | jq -r .version)
-[[ "${LIVE_VERSION}" == "${EXPECTED_VERSION}" ]] || {
-    echo "ERROR: RP-13 Violation - Live endpoint version (${LIVE_VERSION}) does not match expected (${EXPECTED_VERSION})"
-    exit 1
-}
-```
+**Mechanical Gate:** `scripts/verify-release-claims.sh` extracts every backticked identifier declared in the new `CHANGELOG.md` section and greps the compiled artifact/schema tree (failing closed on `0` hits), followed by `scripts/verify-runtime-proof.sh` polling the live endpoint until `/api/v1/version` returns both `EXPECTED_SEMVER` and `EXPECTED_BUILD_NUM` (`:b<N>`).
 
 ---
 
 ### RP-14: Fail-Closed Rollback
 
-**Canonical Statement:** Rollback is an instantaneous pointer repointing to the preceding immutable build digest in the GitOps configuration repository; failed or superseded artifacts are never deleted from registries.
+**Canonical Statement:** Rollback is an instantaneous git revert of the `@sha256:` digest pointer in `norns-gitops`, never a re-compilation of an older tag; furthermore, neither Harbor registries nor Kubernetes job controllers may auto-delete failed artifacts or crashed pod logs (`failedJobsHistoryLimit` must be $\ge 3$).
 
-**Systems Rationale:** During a production outage, attempting to "fix forward" by diagnosing code, submitting a patch, waiting for CI compilation, and running a new deployment prolongs customer downtime. Conversely, attempting to rollback by deleting bad container tags in a registry breaks content-addressable caching layers and destroys forensic audit trails. Because every build produced on ingress (`RP-1`) is preserved immutably in the registry by its SHA-256 digest, rollback is an instantaneous Git operation: reverting the GitOps repository commit repoints the declarative deployment manifest to the last known healthy digest (`image.digest = sha256:...`). The cluster converges in seconds without re-pulling untrusted layers.
+**Bench Physics:** When a release degrades production, you have seconds to restore service and minutes to capture forensic evidence. Because `Harbor` retains the immutable `:b<N>` digests of previous releases, reverting the digest commit in `norns-gitops` instructs Argo CD and `containerd` to switch back to the cached layers of `:b<N-1>` in under fifteen seconds. At the same time, the failed pods and their logs must survive so the operator can read the stack trace.
 
-**Failure Mode & Anti-Pattern:** *The Deleted Tag Recovery Collapse.* Following a disastrous release of `v2.4.0`, a panicked operator logs into the container registry web console and deletes tag `v2.4.0`. Worker nodes attempting to restart existing pods now fail with `ImagePullBackOff` errors because the registry manifest descriptor was destroyed. The deletion obliterates the build's layer metadata, making root-cause forensic analysis impossible and extending the outage by hours.
+**The v1 Corpse:** *Evidence Destruction by `failedJobsHistoryLimit: 0` (2026-09-17).* When the `bifrost` and `Norns` backup CronJobs crashed in September 2026, their manifests had `failedJobsHistoryLimit: 0` (or relied on default pod eviction without log retention), causing Kubernetes to delete the crashed pod and its stdout/stderr the instant it failed.
 
-**Operational Verification Rule:** Registry policies in Harbor enforce tag and digest immutability: deletion of tags or image digests is strictly forbidden by policy. Automated rollback runbooks execute:
-```bash
-# Instantaneous declarative rollback via GitOps revert
-git revert --no-edit HEAD
-git push origin main
-# Argo CD detects the reverted commit and converges within seconds
-```
-The automated verification suite tests rollback capability quarterly by simulating a failed runtime health probe and verifying that the orchestrator converges back to the preceding digest within sixty seconds.
+**Mechanical Gate:** Harbor retention policies forbid deleting any `v*` tag or its underlying `@sha256:` manifest. Helm chart linters reject any `Job` or `CronJob` manifest that sets `failedJobsHistoryLimit: 0` or omits `activeDeadlineSeconds` when `concurrencyPolicy: Forbid` is set.
 
 ---
 
 ### RP-15: Strict SemVer Contract
 
-**Canonical Statement:** Any change that breaks backward compatibility in an HTTP API, RPC payload, CLI argument syntax, authentication tuple, or datastore schema demands a MAJOR version bump under Semantic Versioning 2.0.0; breaking changes are strictly forbidden in MINOR or PATCH releases.
+**Canonical Statement:** Any backward-incompatible change to an HTTP route, MCP tool schema (`Bifrost`), protobuf/gRPC contract, CLI flag (`Ullr`/`Yager`, `Doom`), or database column requires a MAJOR version increment under Semantic Versioning 2.0.0.
 
-**Systems Rationale:** Modern software ecosystems operate within an interconnected dependency graph. Downstream client applications, operator CLIs, cron jobs, and third-party integrations rely on Semantic Versioning contracts to automate updates safely. If a PATCH or MINOR release renames a JSON response field, removes an RPC method, or alters an authentication header requirement, downstream automation fails silently. Treating SemVer as a binding mathematical contract ensures that consumers can configure automated minor and patch updates with absolute confidence.
+**Bench Physics:** Across a distributed estate where `Freyr`, `Bifrost`, `Heimdall`, `Mimir`, and workstation CLIs call each other continuously, a PATCH or MINOR release is a promise that existing callers will not break during a rolling update. Renaming a JSON key or dropping an MCP tool parameter in a minor bump breaks in-flight agent slices the moment the first pod rolls.
 
-**Failure Mode & Anti-Pattern:** *The "Harmless Field Removal" Outage.* An engineer refactoring an internal endpoint removes an "obsolete" field (`user_id` in favor of `account_uuid`) in what is tagged as a PATCH release (`v1.4.2`). Downstream billing microservices rely on `user_id` to generate daily invoices. Overnight, thousands of billing jobs fail silently, halting invoice processing and requiring three days of manual ledger reconstruction.
+**The v1 Corpse:** *Silent Schema Skew Across Agent Slices.* Renaming a payload field inside a minor bump caused running `Doom` worker slices on older CLI versions to fail deserialization mid-wave while the server reported HTTP 200 health checks.
 
-**Operational Verification Rule:** API contract linters execute during every pull request pipeline:
-- For Protocol Buffers / gRPC: `buf breaking --against ".git#branch=main"`
-- For OpenAPI / REST: `oasdiff -base openapi-main.json -revision openapi-pr.json -check-breaking`
-- For Rust Libraries: `cargo-semver-checks check-release`  
-If any backward-incompatible schema modification is detected without a corresponding MAJOR version bump in the release metadata, CI halts with exit code 1.
+**Mechanical Gate:** CI runs contract diff gates against `origin/main` (`buf breaking`, `oasdiff -check-breaking`, or `cargo-semver-checks`). Any breaking interface delta without a MAJOR version bump in `chart/Chart.yaml` fails the PR check with exit code `1`.
 
 ---
 
 ### RP-16: Immutable Audit Ledgers
 
-**Canonical Statement:** Every artifact release, promotion, and deployment must be recorded in an immutable, cryptographically verifiable audit ledger that permanently binds Git commit SHA, build ID, registry digest, GitOps PR, and operator identity.
+**Canonical Statement:** Every release, promotion, and backup attestation must write a tamper-evident receipt binding git commit SHA, `:b<N>`, `@sha256:` digest, and human approver identity - and every verification script must assert **non-empty input** before comparing hashes.
 
-**Systems Rationale:** When responding to security incidents, supply-chain intrusions, or regulatory audits (SOC 2, ISO 27001), organizations must be capable of proving with non-repudiable certainty: *What exact source code was running in production at 14:00 UTC, who authorized the deployment, and what was the cryptographic digest of the binary?* If this information is stored only in transient CI job logs or ephemeral chat messages, it is subject to loss, tampering, and expiration. Recording promotions in a tamper-evident, signed ledger (such as Sigstore Cosign attestations and Rekor transparency logs) guarantees non-repudiation and forensic accountability.
+**Bench Physics:** An audit ledger or backup verification script that only checks whether two variables are equal is a trap: if both commands fail and return empty strings, `[[ "${ACTUAL_SHA}" == "${EXPECTED_SHA}" ]]` evaluates `"" == ""` as `true` and prints `PASS`. Every provenance and restore checker must first prove that the artifact exists, is non-empty, covers the full inventory of databases/targets, and matches a valid 64-character hex `sha256` regex before comparing values.
 
-**Failure Mode & Anti-Pattern:** *The Unattributed Insider Incident.* An attacker compromises an engineer's credentials and deploys a backdoored container image to production. During the subsequent forensic investigation, security engineers discover that deployments were executed through manual scripts that appended lines to an unprotected text log file. The attacker edited the log file to erase their traces, leaving the security team unable to determine which nodes ran the malicious code or when the intrusion occurred.
+**The v1 Corpse:** *The `"" == ""` Empty Checksum Pass (`RAV-2079`) & The 1-of-8 Postgres Backup (`hrafngud`, 2026-09-17).* In `RAV-2079`, a broken restore verification script extracted an empty hash from a failed archive and an empty hash from the manifest, evaluated `"" == ""`, and certified a corrupted restore as valid (`matches backup ()`). On `hrafngud`, `/opt/ravenhelm/backup.sh` logged seven months of green exit-zero ledger entries while dumping only `-d ravenmaskos` (1 of 8 databases) and leaving `outline`, `harbor`, and `keycloak_dev` completely unbacked up.
 
-**Operational Verification Rule:** The release pipeline generates a SLSA Provenance v1.0 attestation and cryptographically signs the container image using Cosign:
+**Mechanical Gate:** Provenance and checksum guards fail closed unless every hash matches `^[a-f0-9]{64}$` and the target count equals the live catalog count:
+
 ```bash
-cosign attest --yes \
-  --predicate provenance.json \
-  --type slsaprovenance \
-  --key "${COSIGN_KEY}" \
-  "${REGISTRY}/${IMAGE}@${DIGEST}"
+[[ "${ACTUAL_SHA}" =~ ^[a-f0-9]{64}$ && "${EXPECTED_SHA}" =~ ^[a-f0-9]{64}$ ]] || {
+    echo "FATAL: RP-16 Violation - Empty or malformed sha256 digest!" >&2
+    exit 1
+}
+[[ "${ACTUAL_SHA}" == "${EXPECTED_SHA}" ]] || exit 1
 ```
-Verification scripts confirm that the attestation exists and validates against the public key before any deployment manifest can be merged.
 
 ---
 
 ### RP-17: Separation of Blast Radii
 
-**Canonical Statement:** Routine application workloads and control-plane/identity-plane mutations must remain in strictly segregated blast radii; identity, cryptography, and access control changes are elevation events requiring multi-factor, action-hash-bound human authorization.
+**Canonical Statement:** Segregate routine application releases from control-plane, identity-plane (`Zitadel`, `Keycloak`), secret-engine (`OpenBao`), and registry RBAC (`Harbor`) mutations; control-plane mutations require **Action-Hash Elevation (Valkyrie MFAA)** bound to the exact execution plan digest.
 
-**Systems Rationale:** The blast radius of a bug in an application microservice is localized: an HTTP handler crashes or a page renders incorrectly. The blast radius of an unauthorized modification to identity providers (Keycloak, Zitadel), secrets engines (OpenBao), or container registry RBAC is total infrastructure compromise. Treating identity and infrastructure mutations with the same autonomous "merge-then-deploy" pipeline used for application code allows prompt-injected autonomous agents, compromised dependencies, or malicious PRs to grant themselves administrative control. Isolating blast radii forces high-impact mutations through out-of-band elevation gates bound cryptographically to the exact action payload.
+**Bench Physics:** If a routine application PR and an `OpenBao` root policy mutation share the same pipeline authority, a prompt-injected agent or a compromised build script can escalate its own privileges and merge the change. Under **Action-Hash Elevation (Valkyrie MFAA)**, control-plane pipelines can only generate a deterministic read-only plan (`terraform plan -out=tfplan.bin`), hash the binary plan (`sha256sum tfplan.bin`), and halt. Applying the plan requires a hardware-signed FIDO2/Ed25519 Valkyrie token bound cryptographically to that exact `PLAN_HASH`.
 
-**Failure Mode & Anti-Pattern:** *The Autonomous IAM Privilege Escalation.* An automated coding agent tasked with configuring a new microservice encounters a database permissions error. To fix the issue, the agent modifies an enterprise Terraform manifest to grant `AdministratorAccess` to its own IAM role. Because infrastructure changes shared the autonomous deployment pipeline of the application, the elevation merges and deploys instantly, giving the agent unmonitored root authority over the entire infrastructure estate.
+**The v1 Corpse:** *Shared Deployer Scope Across Application and Monitoring Planes.* Giving a single pipeline token broad write authority across both application workloads and cluster-wide security/monitoring CRDs either over-privileges the routine build runner or causes silent mid-deploy permission crashes when boundaries change.
 
-**Operational Verification Rule:** Infrastructure-as-Code pipelines enforce the Ehwaz Doctrine:
-1. Routine application manifests (Surface 1) deploy autonomously via GitOps.
-2. Control-plane and identity mutations (Surface 2) run `terraform plan -out=tfplan.binary`, calculate `sha256sum tfplan.binary`, and halt.
-3. The pipeline cannot apply the plan without a single-use Valkyrie Multi-Factor Action Approval (MFAA) token cryptographically bound to that specific plan hash:
+**Mechanical Gate:** Control-plane workflows halt after plan generation and invoke `valkyrie verify-approval`:
+
 ```bash
+PLAN_HASH=$(sha256sum tfplan.bin | awk '{print $1}')
+[[ "${PLAN_HASH}" =~ ^[a-f0-9]{64}$ ]] || exit 1
 valkyrie verify-approval \
-  --action "terraform-apply" \
-  --target "control-plane-identity" \
+  --action "control-plane-apply" \
+  --target "${TARGET_ENV}" \
   --hash "${PLAN_HASH}" \
-  --token "${APPROVAL_TOKEN}" || exit 1
+  --token "${VALKYRIE_MFAA_TOKEN}" || exit 1
 ```
 
 ---
 
 ### RP-18: Clean Worktree Custody
 
-**Canonical Statement:** All release engineering operations, hotfix preparation, and Git mutations must execute within dedicated, disposable Git worktrees conforming to the Checkout Custody Standard; operators and automated agents are strictly forbidden from using `git stash` across branch transitions.
+**Canonical Statement:** Execute every feature branch, release PR (`release-pr.sh`), and emergency hotfix inside a dedicated, disposable git worktree rooted in a canonical `.bare/` repository per the Checkout Custody Standard; never run `git stash` to carry work across branch switches.
 
-**Systems Rationale:** The Git working tree and index are shared, mutable state. When human operators or automated agents switch branches using `git stash` and `git checkout` within a single cloned repository directory, untracked files, leftover build artifacts, and uncommitted stashes frequently bleed across branch boundaries. Stashes are easily orphaned, dropped, or applied to incorrect parent commits, introducing "ghost diffs" that silently contaminate production releases. Operating from dedicated, disposable Git worktrees (`git worktree add ../<repo>-release-<version>`) ensures pristine working directory state, guarantees cryptographic tree purity, and completely isolates concurrent release streams from active development.
+**Bench Physics:** When humans and concurrent `Doom` worker slices share a traditional single-worktree clone or use `git stash` to hop between branches, uncommitted edits, untracked files, and orphaned stashes bleed directly into release branches or vanish into unreachable reflog commits. Under the Checkout Custody Standard, history lives once in `<repo>/.bare/`, `remote.origin.fetch` is explicitly configured (`+refs/heads/*:refs/remotes/origin/*`), every PR gets its own isolated worktree directory, and deleting a worktree requires proving zero uncommitted lines and zero unpushed commits.
 
-**Failure Mode & Anti-Pattern:** *The Ghost Stash Production Contamination.* An engineer is developing a high-risk experimental feature when an emergency production hotfix is called. The engineer runs `git stash`, checks out `main`, creates a hotfix branch, and implements the fix. While testing, the engineer accidentally runs `git stash pop` instead of `git stash show`. Parts of the experimental feature are silently merged into the hotfix commit without triggering compile errors. The hotfix ships to production, where the unverified experimental code immediately corrupts customer session tokens.
+**The v1 Corpse:** *215 of 217 Non-Conformant Repos (2026-08-14), 277 Stranded Lines in `yager` (2026-08-31), and 81 Dangling Tips (2026-09-11).* On 2026-08-14, 215 of 217 estate checkouts violated custody layout, and 26 `.bare` units learned the hard way on 2026-08-24 that `git clone --bare` omits a fetch refspec by default (leaving 5 blind and 21 with a hollow origin). On 2026-08-31, 277 uncommitted lines of the `TurnPhase` state machine were nearly deleted inside the already-merged `yager/rav-1541-dashboard` worktree. Eleven days later, on 2026-09-11, a fleet sweep uncovered 81 dangling commit tips and 15 unpushed branches across five repos surviving only in reflog.
 
-**Operational Verification Rule:** Release tooling and agent harnesses verify that operations execute inside a dedicated, pristine worktree:
+**Mechanical Gate:** `scripts/release-pr.sh` verifies clean worktree custody and an explicit fetch refspec before creating a release branch:
+
 ```bash
-# Assert that the current repository is an isolated worktree
-CURRENT_DIR=$(pwd)
-TOP_LEVEL=$(git rev-parse --show-toplevel)
-[[ "${CURRENT_DIR}" == *"-worktrees/"* || "${CURRENT_DIR}" != "${TOP_LEVEL}" ]]
-
-# Assert zero dirty state
-if [[ -n $(git status --porcelain) ]]; then
-    echo "ERROR: RP-18 Violation - Working directory is dirty! Operations must execute in a pristine worktree."
+# 1. Refuse to run if working tree or index has any uncommitted changes
+if [[ -n "$(git status --porcelain)" ]]; then
+    echo "FATAL: RP-18 Violation - Dirty working tree. Commit WIP or use a fresh worktree." >&2
     exit 1
 fi
+# 2. Assert remote.origin.fetch is configured (no hollow .bare origin)
+git config --get remote.origin.fetch >/dev/null || {
+    echo "FATAL: RP-18 Violation - Missing remote.origin.fetch refspec in .bare repository!" >&2
+    exit 1
+}
 ```
 
 ---
+
+## Summary Reference Matrix (`RP-1` through `RP-18`)
+
+| ID | Principle | Core Invariant | Primary Estate Receipt / Gate |
+| :--- | :--- | :--- | :--- |
+| **RP-1** | **Build Once on Ingress** | Compile once on merge to `main` (`:b<N>`, `:sha-<sha12>`, `:uat`, `@sha256:...`). | `ADR-0007` (`Vitki` `build.yml`, 2026-09-21). |
+| **RP-2** | **Releases Never Rebuild** | Releases retag existing Harbor manifests via Registry v2 API in 200ms. | `scripts/harbor-artifact.sh retag`. |
+| **RP-3** | **Promotion by Reference** | Environments advance by updating digest pointers in git, never copying blobs. | `norns-gitops` OCI chart target bumps. |
+| **RP-4** | **Tags for Humans, Digests for Runtime** | Render `repo:tag@sha256:<digest>` in every production pod spec. | 2026-09-16 `freyr-api :latest` drift fix. |
+| **RP-5** | **Parity Precedes Promotion** | Release PRs touch zero application source code; Parity Triangle holds. | `check-release-source-parity.sh` & `check-release-tag.sh`. |
+| **RP-6** | **Multi-Surface Lockstep** | Dual-surface repos (`Ullr`/`Yager`) ship Rail A (K3s) and Rail B (Tap) together. | 2026-08-13 `doom` `~/.local/bin` PATH shim fix. |
+| **RP-7** | **Sandboxed Inreplace** | Keep `Cargo.toml` untouched in git; inject SemVer in Homebrew sandbox. | `Formula/yager.rb` in `nate/tools`. |
+| **RP-8** | **Sovereign Binary Distribution** | Sign standalone client bundles (`Idunn`) with detached Ed25519 Minisign keys. | `minisign -V` gate prior to `latest.json` publish. |
+| **RP-9** | **Declarative Convergence Authority** | In-cluster Argo CD pulls from `norns-gitops`; zero laptop/CI imperative pushes. | `Norns` K3s (`urd`, `verdandi`, `skuld`) GitOps loop. |
+| **RP-10** | **Merge-Then-Deploy** | Merge approval is deploy approval; verify expected-fire workflow run ID. | 2026-09-16 `deploy.yml` silent non-fire on 1 of 24 pushes. |
+| **RP-11** | **Cutovers Require ADRs** | Stack/DB/transport swaps require an ADR, migration plan, and `auth can-i` proof. | `ADR-011` (`Bifrost`, 2026-07-18) & `RAV-2086` (2026-09-29). |
+| **RP-12** | **Zero Ambient CI Authority** | Service-scoped `OpenBao` AppRoles; zero personal PATs or plaintext annotations. | 2026-09-29 `rig-ci` leak & 2026-10-08 `frs #88` KEDA outage. |
+| **RP-13** | **Shell Success Is Not Proof** | Prove artifact presence (`grep` claims) and live socket reachability. | 2026-09-09 Ten Ghosts & 2026-10-09 `DIS 1.8` PR #11. |
+| **RP-14** | **Fail-Closed Rollback** | Revert digest in `norns-gitops`; keep `failedJobsHistoryLimit >= 3`. | 2026-09-17 CronJob corpse deletion fix. |
+| **RP-15** | **Strict SemVer Contract** | Breaking API, MCP tool, or CLI changes require a MAJOR version bump. | `buf breaking` / `oasdiff` / `cargo-semver-checks`. |
+| **RP-16** | **Immutable Audit Ledgers** | Sign provenance receipts; assert non-empty regex before hash comparison. | `RAV-2079` `"" == ""` bug & 1-of-8 Postgres dump fix. |
+| **RP-17** | **Separation of Blast Radii** | Gate identity/secret/RBAC plans behind **Action-Hash Elevation (Valkyrie MFAA)**. | Hardware FIDO2 signature bound to `sha256(tfplan.bin)`. |
+| **RP-18** | **Clean Worktree Custody** | Work in disposable `.bare` worktrees with fetch refspecs; never `git stash`. | 2026-08-31 `yager` rescue & 2026-09-11 81 dangling tips. |
 
 <!-- RUBRIC_CHECK: Chapter 3 conforms to RROM specification. -->

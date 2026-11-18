@@ -1,372 +1,182 @@
 # Chapter 14: The Release Maturity Assessment: Assessing Your Release Debt
 
-<!-- LICENSE: RROM Community License 1.0 (c) 2026 Ravenhelm LLC -->
+<!-- LICENSE: © 2026 Ravenhelm LLC. Licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Attribution required: "Ravenhelm LLC — Ravenhelm Release Operations Methodology (RROM), https://ravenhelm.dev". -->
 
 ## Assessing Your Release Debt
 
-You are the Release Operator, Principal Architect, or VP of Engineering. You read the previous thirteen chapters of this methodology in a single sitting. You recognized your engineering organization in every one of them:
+On September 17, 2026, after a week of uncovering silent green failures across the estate - **287,838 of 287,879** Alertmanager webhooks failing for four weeks behind a stale Docker single-file bind mount, a backup script dumping 1 of 8 Postgres databases for seven months, a CronJob held in `ImagePullBackOff` for 17 days under `concurrencyPolicy: Forbid`, and a restore verifier comparing `[ "" = "" ]` to print `matches backup ()` - we nailed one standing rule above the workbench:
 
-* You saw your team in the late-night Friday emergency, frantically attempting to deploy a critical patch while a tag-triggered CI pipeline compiled thousands of dependencies from scratch—only to fail halfway through because an upstream mirror went offline.
-* You recognized the lingering dread surrounding staging environments: knowing that while staging passed all automated integration tests, the container image running in production was compiled hours later from a separate runner, rendering staging's test results legally and operationally meaningless.
-* You winced at the memory of an administrative CLI or operational TUI falling out of lockstep with backend API contracts, corrupting production datastores because someone updated the server manifest without updating the developer package manager formula.
-* You felt the familiar exhaustion of tracing a production outage back to an unannounced architectural swap—a database replacement or queue migration sneaked into a routine minor version release without an Architectural Decision Record, dual-running window, or data migration plan.
+> **"Ask of every green: what does this report when it CANNOT answer? And of every checker you write: what does this print on an empty result set?"**
 
-You understand the doctrine. You see the mathematical inevitability of the Core Axiom: **Builds are the unit; releases are names (ADR 0007).** You believe in the eighteen numbered principles (`RP-1` through `RP-18`), and you want to install the Three Physical Rails across your repositories.
+That question is how you audit release maturity. You do not audit an engineering estate by asking whether a CI pipeline exists or whether a dashboard is green. You audit it by pulling the wire on a webhook, feeding an empty string to a digest verifier, or comparing the `imageID` running on `Norns` against the commit tagged in git, and watching what the system does when the happy path breaks.
 
-Then reality intervenes: **You do not have unlimited time, and your organization has accumulated years of Release Debt.**
+You have read the preceding thirteen chapters. You have seen the failures on our bench and recognized the identical scars in your own repositories:
+- Tag-triggered release workflows that recompile dependencies from scratch on a Friday night and fail when an upstream package mirror hiccups.
+- Staging environments that pass every integration suite on an image built at 10:00 AM, followed by a production release that compiles a brand-new container digest at 4:00 PM.
+- Workstation CLIs (`Ullr`, `Yager`, `Doom`) drifting out of sync with cluster pods because someone bumped a Kubernetes manifest and forgot the Homebrew tap formula, or shimmed a stale binary into `~/.local/bin` at PATH index 5 ahead of `/opt/homebrew/bin` at index 9.
+- Architectural cutovers (a datastore swap, a transport replacement, or a repo migration like the `Bifröst` cutover that birthed **ADR-011**) smuggled inside a routine deployment PR without a migration plan or rollback gate.
 
----
-
-### What This Document Gave You
-
-Across the preceding thirteen chapters, RROM delivered the complete architectural foundation for sovereign software delivery:
-
-1. **The Core Axiom & Ontological Boundary:** The uncompromising separation between the physical, immutable artifact produced once on integration trunk merge (`main`) and the administrative, metadata-only act of assigning a Semantic Version name (`RP-1`, `RP-2`, `RP-3`).
-2. **The Numbered Principles:** Eighteen unambiguous, citeable operational invariants spanning artifact custody, multi-surface rails, declarative deployment authority, and cryptographic verification (`RP-1` through `RP-18`).
-3. **The Three Physical Rails:** The concrete distribution mechanics for Server GitOps (Harbor OCI & Argo CD), Developer Workstation Tooling (Private Homebrew Tap with sandboxed `inreplace`), and Sovereign Desktop Applications (Detached Ed25519 Minisign signatures).
-4. **Cutover Governance (ADR-011):** The strict operational distinction between a routine deployment and an architectural cutover, enforcing migration runbooks, shadow traffic, and explicit decommission plans (`RP-11`).
-5. **The Vitki Reference Architecture:** Production-tested scripts, GitHub/Forgejo Actions workflow templates, and GitOps configurations demonstrating exact implementation mechanics.
+You know the Core Axiom: **Builds are the unit; releases are names (ADR-0007).** Now you have to measure the gap between that standard and what is actually running on your machines today.
 
 ---
 
-### What This Document Deliberately Did Not Give You
+## The 100-Point RROM Assessment Scorecard (4 Categories)
 
-A published methodology can provide canonical architecture, but it cannot know the bespoke operational contours of your enterprise:
+Release Debt is the gap between what your ledger claims is running in production and what you can prove by hash. Unlike code debt, which slows feature velocity gradually, release debt sits quiet until an incident forces a rollback or a restore and the lever comes off in your hand.
 
-* **Tuning to Your Heterogeneous Code Host Topology:** The reference specifications assume a unified code host environment. Your enterprise might run primary active development on GitHub Enterprise, maintain sovereign build runners on Forgejo, push mirrors to a private GitLab server, and support legacy repositories on Bitbucket. The Validation Gate (`RP-5`) and promotion webhooks must be engineered to bridge these distinct security perimeters.
-* **Tuning to Your Registry & Network Boundaries:** The methodology prescribes Harbor as the content-addressable OCI source of truth. Your infrastructure may span air-gapped VPCs, multi-region AWS ECR registries, Azure Container Registries with strict private endpoints, or bare-metal edge clusters running behind restrictive firewalls. Reconciling digest promotion across isolated registries requires custom distribution topology.
-* **Untangling Monolithic Build Pipelines:** While greenfield services can implement clean `build.yml` and `release.yml` workflows in an afternoon, legacy monorepos with twenty-minute Docker builds, interleaved database migrations, and complex asset pipelines require surgical refactoring to eliminate tag-time compilation without halting feature delivery.
-* **Calibrating Organizational Risk and Compliance Gates:** The operational requirements of an early-stage SaaS startup differ radically from a fintech or healthcare platform navigating SOC 2 Type II, ISO 27001, or FedRAMP audits. Designing the exact elevation policies, cryptographic signing chains (Sigstore/Cosign), and action-hash approvals (Valkyrie MFAA) requires tailored organizational design.
+Score your estate across the **4 RROM Assessment Categories** (**25 points per category, 100 points total**). Each of the 10 diagnostic controls is scored strictly on physical evidence:
 
-To close the chasm between where your delivery pipelines stand today and the sovereign standard established by RROM, you must begin by quantifying your **Release Debt**.
+- **0 Points (Critical Debt / Antipattern):** The control is absent, or the pipeline actively practices an antipattern (rebuilding on release tags, deploying from laptops, comparing unvalidated strings).
+- **5 Points (Partial / Convention-Only):** The control exists in documentation or works when humans remember to follow the runbook, but fails open when bypassed or fed an empty result set.
+- **10 Points (Sovereign / Mechanically Enforced):** The control is enforced by CI gates, admission controllers, or cryptographic verification, and fails closed on missing or malformed inputs.
 
----
-
-## The 10-Point RROM Diagnostic Rubric
-
-Release Debt is the silent killer of engineering velocity. Like technical debt, it accumulates when teams take operational shortcuts: compiling under release tags, deploying imperatively from developer laptops, hardcoding mutable container tags, and sharing static cloud credentials across CI runners. Unlike technical debt, which degrades code maintainability over months, release debt detonates abruptly in production during high-stress operational moments.
-
-Grade your organization against the following 10-point diagnostic rubric. Each question is scored on an honest 0 to 2 point scale:
-
-* **0 Points (Critical Debt / Antipattern):** The capability does not exist, or the organization actively practices an antipattern that guarantees production risk.
-* **1 Point (Partial / Fragile):** The capability exists in pockets or relies on human discipline, manual runbooks, and unverified assumptions.
-* **2 Points (Sovereign / RROM Compliant):** The capability is fully automated, mechanically enforced by CI linters or admission controllers, and verified by cryptographic proof.
-
-| # | Diagnostic Assessment Area | Points | Governing Principle |
-| :--- | :--- | :--- | :--- |
-| **01** | Build Once on Ingress | ___ / 2 | RP-1: Build Once on Ingress |
-| **02** | Kernel Scheduling Truth via Digest Pinning | ___ / 2 | RP-4: Tags for Humans, Digests for Runtime |
-| **03** | Staging & Production Bit-Level Parity | ___ / 2 | RP-3: Promotion by Reference |
-| **04** | Multi-Surface Lockstep Synchronization | ___ / 2 | RP-6: Multi-Surface Lockstep |
-| **05** | Declarative Convergence Authority | ___ / 2 | RP-9: Declarative Convergence Authority |
-| **06** | Zero Ambient CI Authority | ___ / 2 | RP-12: Zero Ambient CI Authority |
-| **07** | Cutover Governance & ADR-011 Enforcement | ___ / 2 | RP-11: Cutovers Require ADRs |
-| **08** | Automated Source Parity Gating | ___ / 2 | RP-5: Parity Precedes Promotion |
-| **09** | Sub-60-Second Fail-Closed Rollback | ___ / 2 | RP-14: Fail-Closed Rollback |
-| **10** | Cryptographic Provenance & Audit Ledgers | ___ / 2 | RP-16: Immutable Audit Ledgers |
-| **TOTAL** | **MATURITY SCORE** | **___ / 20** | **Maximum Score: 20 Points** |
+| Category | # | Diagnostic Control | Max Points | Governing Principle |
+| :--- | :--- | :--- | :---: | :--- |
+| **I. Artifact Custody** | **01** | Build Once on Ingress & Zero-Rebuild Promotion | 10 | RP-1, RP-2, RP-3 |
+| **I. Artifact Custody** | **02** | Kernel Scheduling Truth via `@sha256` Digest Pinning | 10 | RP-4 |
+| **I. Artifact Custody** | **03** | Automated Source Parity & Parity Triangle Gates | 5 | RP-5 |
+| **II. Multi-Surface Rails** | **04** | Server, Workstation Tap & Client Lockstep | 15 | RP-6, RP-8 |
+| **II. Multi-Surface Rails** | **05** | Sandboxed Formula `inreplace` & `PATH` Hygiene | 10 | RP-7 |
+| **III. Deployment & Cutover Authority** | **06** | In-Cluster GitOps Convergence & Pointer Rollback | 10 | RP-9, RP-10, RP-14 |
+| **III. Deployment & Cutover Authority** | **07** | Cutover Governance (ADR-011) & Pre-Deploy RBAC Proof | 5 | RP-11 |
+| **III. Deployment & Cutover Authority** | **08** | Zero Ambient Authority & Action-Hash Elevation (Valkyrie MFAA) | 10 | RP-12, RP-17 |
+| **IV. Verification & Observability** | **09** | Live Reachability, Expected-Fire Custodian & Empty-Set Guards | 15 | RP-13, RP-15 |
+| **IV. Verification & Observability** | **10** | SLSA-3 Provenance, Týr/Vór Ledgers & Dynamic Restore Proofs | 10 | RP-16 |
+| **TOTAL** | | **ESTATE RELEASE CUSTODY SCORE** | **100** | **4 Categories (25 pts each)** |
 
 ---
 
-### 1. Build Once on Ingress (`RP-1`, `RP-2`)
+## Category I: Artifact Custody (25 Points)
 
-* **Diagnostic Question:** Does your release pipeline promote an existing, pre-tested image digest created upon trunk merge, or does it trigger a compiler, bundler, or container build daemon when a release tag is pushed?
-* **Scoring Criteria:**
-  * **0 Points (Critical Debt):** Release workflows trigger `docker build`, `cargo build`, `npm run build`, or equivalent compilation toolchains when a Git tag (`v*.*.*`) or release branch is created.
-  * **1 Point (Partial):** Binaries or images are built during CI runs on feature branches or staging, but release tags rebuild the artifact "to ensure a clean production build," or staging builds are discarded in favor of a final release build.
-  * **2 Points (Sovereign):** Releases never invoke compilers or build daemons (`RP-2`). Merges to `main` compile the artifact exactly once (`RP-1`), assigning a monotonic build sequence (`:b<N>`). Release pipelines execute pure metadata operations, retagging the pre-existing OCI digest descriptor via Registry API calls (`PUT /v2/<name>/manifests/<tag>`).
-* **The "Red Flag" Symptom:** A release pipeline takes 15 to 45 minutes to execute after pushing a tag, and occasionally fails due to an external package registry timeout (npm, PyPI, crates.io) on code that had already been tested and merged days prior.
-* **Monday Morning Remediation:** Inspect your CI workflow files. Remove all `on: push: tags: ['v*']` triggers that execute `docker/build-push-action`, `cargo build`, or `npm build`. Split your pipeline into an ingress `build.yml` triggered on `push: branches: [main]` that publishes `:b<N>`, and a release workflow that uses `crane` or the registry API to retag that existing build.
+### 1. Build Once on Ingress & Zero-Rebuild Promotion (10 Points - `RP-1`, `RP-2`, `RP-3`)
+- **Bench Test:** Push an annotated release tag `vX.Y.Z`. Does the workflow invoke a compiler (`cargo build`, `go build`, `docker build`), or does it promote an existing `:b<N>` manifest digest via the OCI Registry v2 API in under a second?
+- **Scoring:**
+  - **0 Points:** Release tags trigger compilation or `docker build`. Staging and production run different container digests.
+  - **5 Points:** Builds happen on `main`, but release workflows still pull and re-push image layers or lack `paths-ignore` (triggering recursive rebuilds when `chart/values.yaml` merges).
+  - **10 Points:** Merges to `main` compile once into `:b<N>`, `:sha-<sha12>`, and `:uat` via internal `harbor-nginx`. `release.yml` contains zero compilers and promotes `:b<N>` to `:vX.Y.Z` via Registry v2 `GET`/`PUT` (`scripts/harbor-artifact.sh retag`).
+- **Monday Morning Fix:** Rip every compiler step out of `release.yml`. Add `paths-ignore` (`chart/**`, `docs/**`, `*.md`, `CHANGELOG.md`) to `build.yml`.
 
----
+### 2. Kernel Scheduling Truth via `@sha256` Digest Pinning (10 Points - `RP-4`)
+- **Bench Test:** Inspect live pod specs on your cluster (`kubectl get pods -o yaml`). Are images scheduled by `repository:tag@sha256:<64-hex>`, or by mutable string tags (`:latest`, `:v1.4.2`)?
+- **Scoring:**
+  - **0 Points:** Workloads run `:latest` or floating branch tags (like `freyr-api :latest` auto-rolling prod on 2026-09-16 without a commit in git).
+  - **5 Points:** Workloads pin SemVer tags (`:v1.4.2`) in Helm values without `@sha256:` digests, relying on node cache luck.
+  - **10 Points:** Every production workload pins `repository:tag@sha256:<64-hex>`, enforced at admission by Kyverno and audited by the Verification Triangle (`scripts/audit-live-cluster.sh`).
+- **Monday Morning Fix:** Deploy the Kyverno `block-mutable-tags-require-digest` policy and pin every `values.yaml` in GitOps to its current `@sha256:` digest.
 
-### 2. Kernel Scheduling Truth via Digest Pinning (`RP-4`)
-
-* **Diagnostic Question:** Do your production Kubernetes manifests, Helm values, or Docker Compose files pin full `@sha256:` content digests, or do they reference mutable string tags?
-* **Scoring Criteria:**
-  * **0 Points (Critical Debt):** Manifests reference naked mutable tags such as `:latest`, `:stable`, `:production`, or floating branch tags (`:main`).
-  * **1 Point (Partial):** Manifests reference Semantic Version tags (e.g., `image: myapp:v1.4.2`), but lack the cryptographic digest pin (`@sha256:`). The cluster relies on `imagePullPolicy: Always` and local node caches.
-  * **2 Points (Sovereign):** Manifests explicitly declare images using the dual coordinate format: `repository:tag@sha256:<64-char-hex>`. Admission controllers (Kyverno, Gatekeeper) or CI pre-commit linters reject any deployment manifest lacking a 64-character SHA-256 digest pin.
-* **The "Red Flag" Symptom:** During a rolling restart or autoscaling event, two pods running in the same production cluster execute divergent application code because worker node $A$ pulled a cached tag before a hotfix was repushed, while node $B$ pulled the updated image.
-* **Monday Morning Remediation:** Add an automated linter to your GitOps repository using `grep -E` that scans all YAML manifests and fails if any container image reference lacks `@sha256:[a-f0-9]{64}`. Pin all current workloads to their live running digests immediately.
-
----
-
-### 3. Staging & Production Bit-Level Parity (`RP-3`, `RP-5`)
-
-* **Diagnostic Question:** Is the artifact running in staging byte-identical to the artifact promoted to production, verified by cryptographic hash?
-* **Scoring Criteria:**
-  * **0 Points (Critical Debt):** Staging and production have separate build pipelines. Staging builds are compiled with "debug" or "staging" environment variables embedded directly into the binary or container image at compile time.
-  * **1 Point (Partial):** Staging and production use the same Dockerfile, but are compiled in separate CI runner invocations. Staging and production artifacts share a Git commit SHA, but have different SHA-256 image digests.
-  * **2 Points (Sovereign):** Staging and production run the exact same physical byte sequence (`RP-3`). Staging tracks the `:uat` moving stream pointing to build `:b<N>`. When approved, that exact build digest is promoted to production. All environment-specific behaviors are injected strictly at runtime via config maps and secrets.
-* **The "Red Flag" Symptom:** The post-incident retrospective contains the phrase: *"The bug did not happen in staging because staging was built with slightly different flags/dependencies than production."*
-* **Monday Morning Remediation:** Eliminate compile-time environment injection (e.g., `ARG ENV=production`). Externalize all environment configuration to runtime 12-Factor variables. Configure your staging environment to pull the exact `:b<N>` artifact emitted by your trunk build.
+### 3. Automated Source Parity & Parity Triangle Gates (5 Points - `RP-5`)
+- **Bench Test:** Open a release PR that modifies one line of `cmd/main.go` alongside `chart/values.yaml`. Does CI reject the PR automatically?
+- **Scoring:**
+  - **0 Points:** Release branches regularly carry cherry-picked code fixes or version-bump commits in `Cargo.toml` / `package.json`.
+  - **2 Points:** Written policy forbids source changes in release PRs, but only human eyeballs enforce it.
+  - **5 Points:** `scripts/check-release-source-parity.sh` and `scripts/check-release-tag.sh` run as mandatory gates on every release PR and tag push, failing closed if any file outside `chart/`, `CHANGELOG.md`, or `docs/` changed.
 
 ---
 
-### 4. Multi-Surface Lockstep Synchronization (`RP-6`, `RP-7`)
+## Category II: Multi-Surface Rails (25 Points)
 
-* **Diagnostic Question:** If your platform distributes software across multiple physical surfaces (such as backend Kubernetes microservices and operator workstation CLIs/TUIs), are they released in atomic lockstep using sandboxed formula versioning?
-* **Scoring Criteria:**
-  * **0 Points (Critical Debt):** Backend services and developer CLIs live in separate uncoordinated repositories, or CLIs are manually compiled and distributed via ad-hoc Slack attachments, Google Drive links, or unversioned shell scripts.
-  * **1 Point (Partial):** Services and CLIs share a monorepo, but their releases are decoupled. An engineer must remember to manually update the Homebrew tap formula or release script hours or days after the backend API is deployed.
-  * **2 Points (Sovereign):** Repositories serving multiple surfaces enforce an atomic release matrix (`RP-6`). The release pipeline updates the server GitOps manifest (Rail A) and the private Homebrew tap formula (Rail B) concurrently within the same release cycle. Homebrew formulas use sandboxed `inreplace` to preserve zero-drift source parity (`RP-7`).
-* **The "Red Flag" Symptom:** An on-call engineer runs an administrative CLI from their laptop to troubleshoot a production incident, and the command corrupts customer records because the CLI's internal schema was out of sync with the recently deployed backend API.
-* **Monday Morning Remediation:** Map all computing surfaces delivered by your repository. Unify the release workflow so that a release PR modifies both the server manifest and the package manager formula (e.g., `Formula/<tool>.rb`) in a single pull request, asserting version parity before merge.
+### 4. Server, Workstation Tap & Client Lockstep (15 Points - `RP-6`, `RP-8`)
+- **Bench Test:** Pick a dual-surface repository (like `Ullr` or `Yager`, which ship both a cluster service on Rail A and an operator CLI on Rail B). Compare the version running in the cluster against `brew info nate/tools/<tool>` and the artifact-grep gate.
+- **Scoring:**
+  - **0 Points:** Workstation CLIs are built by hand or shipped out-of-band weeks after the server API changes; or documentation sites advertise release features with zero hits in the shipped schema (`DIS 1.8`, 2026-10-09).
+  - **7 Points:** Both surfaces are automated, but ship from separate triggers without a shared release gate or artifact-content grep check.
+  - **15 Points:** Dual-surface releases execute Rail A (`norns-gitops`), Rail B (`nate/homebrew-tools`), and Rail C (`Idunn` Minisign OTA) in atomic lockstep from the same tagged commit, guarded by an artifact-grep check that proves every advertised construct exists in the shipped artifact.
 
----
-
-### 5. Declarative Convergence Authority (`RP-9`)
-
-* **Diagnostic Question:** Is an in-cluster GitOps reconciler (such as Argo CD or Flux) the sole applying authority in production, with zero imperative push or laptop deploy access?
-* **Scoring Criteria:**
-  * **0 Points (Critical Debt):** Engineers deploy software by executing `kubectl apply`, `helm upgrade`, or `docker-compose up` directly from their laptops or via SSH sessions into production hosts.
-  * **1 Point (Partial):** CI/CD runners (GitHub Actions) execute `kubectl apply` or `helm upgrade` using stored cloud credentials or cluster-admin kubeconfigs pushed over the network.
-  * **2 Points (Sovereign):** Direct network ingress to the cluster API server from developer subnets and CI runner IP blocks is completely blocked. An in-cluster GitOps controller (Argo CD) pull-reconciles desired state from Git (`RP-9`). Human operators have read-only cluster access; all state mutations occur via reviewed Git pull requests.
-* **The "Red Flag" Symptom:** Production cluster state drifts mysteriously from Git; an engineer accidentally executes a `helm upgrade` against production while their local terminal context was pointed to the wrong kubeconfig.
-* **Monday Morning Remediation:** Revoke all cluster-admin tokens held on developer workstations. Restrict developer IAM roles to read-only `get`, `list`, and `watch` permissions. Install an in-cluster GitOps operator and route all manifest updates through a dedicated Git configuration repository.
+### 5. Sandboxed Formula `inreplace` & `PATH` Hygiene (10 Points - `RP-7`)
+- **Bench Test:** Run `which -a <tool>` on an operator workstation and inspect `Formula/<tool>.rb` in your tap. Does `Cargo.toml` stay untouched in git while Homebrew `inreplace`s the version inside the build sandbox? And does the post-install check verify no stale binary shadows `/opt/homebrew/bin`?
+- **Scoring:**
+  - **0 Points:** Engineers commit version bumps to `Cargo.toml` on release PRs (breaking source parity), or self-updaters drop shims into `~/.local/bin` that shadow Homebrew (like `doom --version` printing `0.4.0` from PATH index 5 while running pre-release code).
+  - **5 Points:** Homebrew formulas use `inreplace`, but lack `Cargo.lock` synchronization or `test do` version assertions.
+  - **10 Points:** Formulas dynamically `inreplace` both manifest and lockfile inside the ephemeral sandbox, run `test do` assertions on `--version`, and workstation checks verify `realpath $(which <tool>)` resolves to the active Cellar binary.
 
 ---
 
-### 6. Zero Ambient CI Authority (`RP-12`)
+## Category III: Deployment & Cutover Authority (25 Points)
 
-* **Diagnostic Question:** Are continuous integration runners strictly prohibited from holding long-lived administrative cloud credentials or root infrastructure secrets?
-* **Scoring Criteria:**
-  * **0 Points (Critical Debt):** Repository or organization secrets contain permanent `AWS_ACCESS_KEY_ID`, static SSH private keys with root access, or cluster-admin kubeconfigs.
-  * **1 Point (Partial):** Secrets are scoped to specific environments, but tokens are long-lived (valid for months or years) and stored directly in code host secret vaults.
-  * **2 Points (Sovereign):** CI runners operate with zero ambient credentials (`RP-12`). When elevation is required (e.g., pushing an image to Harbor), the runner exchanges an ephemeral OpenID Connect (OIDC) JWT for a short-lived token (TTL $\le$ 10 minutes) with strictly scoped least-privilege permissions.
-* **The "Red Flag" Symptom:** A third-party security scanner alerts that an unvetted pull request from a public fork or an automated dependency update could execute code with access to production cloud credentials.
-* **Monday Morning Remediation:** Audit your repository secrets. Delete all static AWS IAM keys, GCP service account keys, and root SSH credentials. Transition CI workflows to OIDC federation (AWS IAM Roles Anywhere, GCP Workload Identity, or OpenBao AppRoles).
+### 6. In-Cluster GitOps Convergence & Pointer Rollback (10 Points - `RP-9`, `RP-10`, `RP-14`)
+- **Bench Test:** Time a production rollback from decision to healthy pods. Does it take a single `git revert` in `norns-gitops` and under 60 seconds, or does someone have to SSH into `odin` or wait 20 minutes for a rebuild?
+- **Scoring:**
+  - **0 Points:** Operators deploy via SSH (`docker compose restart`, which silently ignores new volume mounts) or run `kubectl apply` from laptops.
+  - **5 Points:** Argo CD runs in the cluster, but CI runners still hold `kubeconfig` secrets to push imperative changes on the side.
+  - **10 Points:** In-cluster Argo CD is the sole applying authority on `Norns`. Merge to `main` triggers deployment (`RP-10`), and rollback is a deterministic git pointer revert to the previous `@sha256` digest (`RP-14`).
 
----
+### 7. Cutover Governance (ADR-011) & Pre-Deploy RBAC Proof (5 Points - `RP-11`)
+- **Bench Test:** Inspect the last service migration or new Kubernetes resource kind added to a chart. Did it carry a ratified ADR, a data migration plan, and a pre-merge `kubectl auth can-i` proof for the deployer service account?
+- **Scoring:**
+  - **0 Points:** Architecture swaps (repo replacements, datastore swaps, transport removals) ship disguised as routine merges without an ADR or decommission plan.
+  - **2 Points:** ADRs are written for major rewrites, but deployers still fail on first rollout when a chart adds a new resource kind (like `bifrost` PR #37 failing on `PrometheusRules` in `RAV-2086`).
+  - **5 Points:** Every cutover requires a ratified ADR, dual-run migration proof, and loud decommission (`ADR-011`), and every new resource kind added to a chart is verified beforehand with `kubectl auth can-i <verb> <resource> --as=system:serviceaccount:<ns>:<deployer>`.
 
-### 7. Cutover Governance & ADR-011 Enforcement (`RP-11`)
-
-* **Diagnostic Question:** Does your engineering organization formally differentiate between routine application deployments and architectural cutovers, enforcing Architectural Decision Records (ADRs) and rollback runbooks for structural swaps?
-* **Scoring Criteria:**
-  * **0 Points (Critical Debt):** Major architectural changes (database engine replacements, queue protocol changes, service rewrites) are shipped under regular release pull requests with no formal review beyond code approval.
-  * **1 Point (Partial):** Teams write design documents for major migrations, but deployment gates do not differentiate between a routine code bump and a cutover. Migration steps, data parity validation, and decommission runbooks are informal.
-  * **2 Points (Sovereign):** The organization strictly enforces ADR-011 (`RP-11`). Cutovers (repo swaps, datastore migrations, transport replacements) are legally classified as architectural mutations requiring an accepted ADR, an expand-contract data migration plan, dual-running validation, and explicit out-of-band human cutover approval.
-* **The "Red Flag" Symptom:** An engineering team attempts to upgrade a service, but the pull request silently changes the database driver or rewrites the persistence layer, resulting in catastrophic unmigrated data and hours of downtime when rolled back.
-* **Monday Morning Remediation:** Adopt the ADR-011 template. Add a static check to your release PR process that flags changes touching database schema migrations, transport libraries, or infrastructure configuration, requiring an approved ADR citation before merge.
-
----
-
-### 8. Automated Source Parity Gating (`RP-5`)
-
-* **Diagnostic Question:** Do automated validation scripts reject release pull requests that contain unauthorized modifications to application source code?
-* **Scoring Criteria:**
-  * **0 Points (Critical Debt):** Release branches or release PRs frequently include "quick last-minute bugfixes," styling tweaks, or cherry-picked commits directly touching application source code files (`src/`, `cmd/`, `pkg/`).
-  * **1 Point (Partial):** Engineering guidelines state that release branches should only contain version bumps, but compliance is enforced solely by human code reviewers eyeballing the pull request diff.
-  * **2 Points (Sovereign):** Release validation gates mandate automated execution of `scripts/check-release-source-parity.sh` (`RP-5`). The script asserts zero diff between the release commit and the parent ingress build commit, strictly whitelisting only configuration metadata (Helm values, CHANGELOG, package manifests).
-* **The "Red Flag" Symptom:** A release candidate fails in production due to an untested regression introduced directly into the release branch by a developer attempting to fix a minor issue without running the full test suite.
-* **Monday Morning Remediation:** Implement `scripts/check-release-source-parity.sh` in your repository. Configure CI to run `git diff --name-only <parent-build-commit> HEAD` on all release PRs, immediately failing the build if any non-metadata file is modified.
+### 8. Zero Ambient Authority & Action-Hash Elevation (Valkyrie MFAA) (10 Points - `RP-12`, `RP-17`)
+- **Bench Test:** Audit your runner environment variables, shell scripts, and Surface 2 control-plane workflows. Do runners hold static admin keys, or do they use **OpenBao AppRole** for Surface 1 and **Action-Hash Elevation (Valkyrie MFAA)** for Surface 2?
+- **Scoring:**
+  - **0 Points:** Long-lived admin tokens sit in CI secrets; scripts leak tokens via `curl` argv, `pgrep -lf`, BSD `sed` redaction failures, or `.metadata.annotations` dumps; agent loops call `op` on every iteration.
+  - **5 Points:** Surface 1 and Surface 2 are separated, but human elevation uses time-window session MFA (15-minute open windows) instead of payload-hash binding.
+  - **10 Points:** Surface 1 runs on scoped **OpenBao AppRole** machine identities; Surface 2 requires **Action-Hash Elevation (Valkyrie MFAA)** where the human Gatekeeper biometrically signs the exact 64-hex `sha256(tfplan.binary)`, consumed on first use. Secrets pass via `stdin` (`curl --config -`) and redaction uses Python.
 
 ---
 
-### 9. Sub-60-Second Fail-Closed Rollback (`RP-14`)
+## Category IV: Verification & Observability (25 Points)
 
-* **Diagnostic Question:** Can your on-call team execute a fail-closed production rollback in under 60 seconds without compiling code, building containers, or waiting for a CI runner?
-* **Scoring Criteria:**
-  * **0 Points (Critical Debt):** Rollbacks require identifying the broken commit, executing `git revert`, pushing to a branch, waiting 20 minutes for a CI build to compile, and pushing the new build through the pipeline ("fixing forward").
-  * **1 Point (Partial):** Rollbacks can be triggered by manually updating a tag in a deployment manifest or running `kubectl rollout undo`, but the process is manual, undocumented, and risks desynchronizing Git from cluster state.
-  * **2 Points (Sovereign):** Rollback is an instantaneous Git pointer revert in the GitOps repository (`RP-14`). Reverting the single GitOps commit repoints the declarative manifest to the last known healthy immutable digest. Argo CD detects the change and converges the cluster within seconds without pulling untrusted layers.
-* **The "Red Flag" Symptom:** During an active Severity-1 production incident, the on-call team spends 40 minutes arguing about whether to rollback or push a hotfix, because rolling back is terrifying, slow, and unverified.
-* **Monday Morning Remediation:** Document and drill the exact GitOps rollback command: `git revert --no-edit HEAD && git push origin main`. Verify that your artifact registry retains historical `:b<N>` digests indefinitely so rollback targets are always immediately pullable.
+### 9. Live Reachability, Expected-Fire Custodian & Empty-Set Guards (15 Points - `RP-13`, `RP-15`)
+- **Bench Test:** Ask of every check in your pipeline: *what does this report when it cannot answer, and what does it print on an empty result set?*
+- **Scoring:**
+  - **0 Points:** Tasks are marked `Done` on PR merge without checking if the code has a runtime caller (the 10 dead-on-arrival features of 2026-09-09); equality checks compare unvalidated variables (`[ "$A" = "$B" ]` passing on `"" == ""`); Harbor auth checks trust `HTTP 200` from `/service/token`.
+  - **7 Points:** Post-deploy health checks hit `/healthz`, but nothing alerts when a push to `main` fails to trigger a workflow run (`deploy.yml` silent drop on 1 of 24 merges) or when a stale single-file bind mount breaks webhook delivery.
+  - **15 Points:** Every equality check guards against the empty set (`[[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]`). The Expected-Fire Release Custodian alerts whenever a merge to `main` lacks a build/deploy run within $N$ minutes. Live functional probes verify real callers and mounted directories (never single-file inode bind mounts).
 
----
-
-### 10. Cryptographic Provenance & Audit Ledgers (`RP-13`, `RP-16`)
-
-* **Diagnostic Question:** Can you prove the exact Git commit SHA, ingress build ID, and signer identity of the container binary currently listening on production port 443, backed by an immutable cryptographic ledger?
-* **Scoring Criteria:**
-  * **0 Points (Critical Debt):** You cannot state with certainty which commit is running in production without reverse-engineering container file timestamps or guessing from mutable tags.
-  * **1 Point (Partial):** Container images are labeled with Git commit hashes (`LABEL git.commit=...`), but labels are unverified metadata that can be trivially falsified or overwritten in the registry.
-  * **2 Points (Sovereign):** Every release produces a verifiable SLSA Provenance attestation and is cryptographically signed using Sigstore Cosign (`RP-16`). Deployment gates verify signatures against trusted public keys before admission. Live runtime probes empirically verify endpoint versions (`RP-13`).
-* **The "Red Flag" Symptom:** When an auditor or security investigator asks for a non-repudiable audit trail linking running production workloads to approved pull requests and build logs, engineering must spend days assembling circumstantial evidence from Slack messages and ephemeral CI logs.
-* **Monday Morning Remediation:** Integrate Cosign into your ingress build workflow. Sign every container digest immediately upon compilation using a repository-scoped keypair, and store the resulting signature directly in your OCI registry alongside the image manifest.
+### 10. SLSA-3 Provenance, Týr/Vór Ledgers & Dynamic Restore Proofs (10 Points - `RP-16`)
+- **Bench Test:** Inspect your last nightly backup script and your last production release receipt. Does the backup enumerate databases dynamically (`SELECT datname FROM pg_database`) and stream every archive through `pg_restore -f /dev/null`? Are CronJobs bounded by `activeDeadlineSeconds`?
+- **Scoring:**
+  - **0 Points:** Backups hardcode a single database name (`-d ravenmaskos`, leaving 7 of 8 databases unbacked up for 7 months) or sit wedged for 17 days in `ImagePullBackOff` under `concurrencyPolicy: Forbid` without `activeDeadlineSeconds`.
+  - **5 Points:** Images carry Cosign signatures and SBOMs in Harbor, and backups run with deadlines, but restores are only tested by checking file size (`[ -s ]`).
+  - **10 Points:** Every image carries Cosign-signed CycloneDX/SPDX SBOMs as OCI 1.1 Referrers. **Týr** records policy judgments and **Vór** seals hash-chained release receipts. Every backup dynamically enumerates the live catalog, sets `activeDeadlineSeconds` and `failedJobsHistoryLimit: 3`, and proves restorability with `pg_restore -f /dev/null` and a 64-hex digest guard.
 
 ---
 
 ## Assessment Score Bands & Organizational Profiles
 
-Tally your score across the ten diagnostic areas (0 to 20 points). Locate your organization's maturity profile in the matrix below:
-
-| Score Band | Maturity Level | Operational Posture |
+| Score Band | Maturity Level | Operational Reality on the Bench |
 | :--- | :--- | :--- |
-| **0 – 6 Points** | Level 0: Fragile & Accidental | High-risk, unverified, manual delivery |
-| **7 – 12 Points** | Level 1: Emerging Containerization | Automated CI, but brittle, unpinned delivery |
-| **13 – 17 Points** | Level 2: Disciplined GitOps | Declarative, synchronized, repeatable delivery |
-| **18 – 20 Points** | Level 3: Sovereign Autonomous Ops | Cryptographic, multi-surface, zero-trust ops |
+| **0 - 30 Points** | **Level 0: Vibes & Heroics** | Mutable tags, tag-time rebuilds, laptop deploys, and checks that pass on `"" == ""`. |
+| **31 - 60 Points** | **Level 1: Half-Wired Automation** | Containers and CI exist, but releases rebuild, CLIs drift, and dropped webhooks fail silent. |
+| **61 - 84 Points** | **Level 2: Disciplined GitOps** | Build-once `:b<N>`, `@sha256` pinning, and Argo CD convergence work; Surface 2 and state audits still have blind spots. |
+| **85 - 100 Points** | **Level 3: Sovereign Release Custody** | Cryptographic custody across all three rails, Valkyrie Action-Hash Elevation, Týr/Vór receipts, and falsifiable probes. |
+
+### Level 0: Vibes & Heroics (0 - 30 Points)
+
+You are running on human memory and luck. Releases trigger compilers from git tags, workloads pull `:latest` or mutable tags, and operators SSH into hosts to run `docker compose restart` after editing volume mounts that `restart` never reads. When a backup script exits `0`, nobody asks whether seven new databases were added to the Postgres cluster since February.
+- **First Three Moves:** Stop compiling in `release.yml`. Pin every running container to its `@sha256:` digest today. Put `[[ "$SUM" =~ ^[0-9a-f]{64}$ ]]` in front of every checksum comparison in your repo.
+
+### Level 1: Half-Wired Automation (31 - 60 Points)
+
+You have CI workflows and Kubernetes clusters, which makes the failures harder to spot because the dashboards are green. A markdown edit runs the full test suite for 9 minutes 23 seconds because `paths-ignore` is missing. A job with `runs-on: docker` fails randomly depending on whether `Norns` or `eikthyrnir` picks it up, and when the UI drops the log, engineers hit re-run instead of reading `dbfs`. Local CLI tools report `--version 0.4.0` from a stale shim in `~/.local/bin` while the cluster runs `0.4.2`.
+- **First Three Moves:** Enforce the **Vitki** pattern (`build.yml` on `main` -> `:b<N>`, `release.yml` via Registry v2 `PUT`). Synchronize Rail A and Rail B with sandboxed Homebrew `inreplace`. Add the Expected-Fire Release Custodian so silent webhook drops page within 5 minutes.
+
+### Level 2: Disciplined GitOps (61 - 84 Points)
+
+Your application delivery rail is clean: builds happen once on ingress, `norns-gitops` pins 64-hex digests, Argo CD converges the cluster, and rollbacks take 30 seconds. Your remaining risk lives in the seams: a deployer failing on a new CRD because nobody ran `kubectl auth can-i`, a CronJob lacking `activeDeadlineSeconds` under `concurrencyPolicy: Forbid`, or Surface 2 control-plane changes sharing credentials with routine app pipelines.
+- **First Three Moves:** Partition Surface 1 (**OpenBao AppRole**) from Surface 2 (**Action-Hash Elevation via Valkyrie MFAA**). Enforce **ADR-011** and `kubectl auth can-i` pre-checks on every structural change. Add `activeDeadlineSeconds` and dynamic catalog enumeration to every backup job.
+
+### Level 3: Sovereign Release Custody (85 - 100 Points)
+
+What 300 humans once maintained by floor discipline and pasted screenshots, your pipeline enforces by physics. Every artifact builds once on ingress, carries its CycloneDX SBOM and Cosign signature in Harbor via OCI 1.1 Referrers, promotes by reference across Server GitOps (Rail A), Homebrew Tap (Rail B), and Minisign OTA (Rail C), and proves its live reachability before the ledger marks the issue `Done`. Surface 2 mutations require the human Gatekeeper's hardware signature on the exact `sha256(tfplan.binary)`. Every green check has a documented answer for what it prints when it cannot answer.
 
 ---
 
-### Level 0: Fragile & Accidental Delivery (0 – 6 Points)
+## Commercial Advisory & Turnkey Implementation with Ravenhelm LLC
 
-#### Operational Reality
-Organizations at Level 0 treat software release as a bespoke, manual, and hazardous event. Deployments are executed imperatively: engineers run scripts from their personal laptops, execute `kubectl apply` commands against production clusters, or connect to production servers over SSH to pull Git repositories and restart systemd daemons. 
+Refactoring a live engineering estate from tag-time rebuilds and ambient CI secrets to sovereign RROM custody while shipping product features is heavy surgery. **Ravenhelm LLC** works directly with VPs of Engineering, Chief Architects, and Platform Leads to audit release debt and install the rails without stopping the factory floor.
 
-Container images (if used at all) are tagged with mutable identifiers such as `:latest`, `:dev`, or `:prod`. CI pipelines, when present, trigger extensive compilation toolchains whenever a Git tag is pushed, meaning that the software deployed to production is never the software that was tested in staging. Long-lived administrative secrets and root cloud keys are scattered across developer laptops and repository secret stores.
-
-#### Core Failure Modes
-* **The "Black Friday" Catastrophe:** A high-visibility production release fails abruptly because an external dependency mirror goes down during tag-time compilation, or because an unpinned transitive npm package updates between staging and production builds.
-* **Laptop State Pollution:** An engineer deploys code containing uncommitted local file tweaks, debug configurations, or incorrect environment variables that immediately take down production services.
-* **The Irreversible Release:** A deployment corrupts the database, but because the team lacks immutable historical image digests, rolling back requires checking out old Git commits and attempting to re-compile old code against updated build runners—a process that routinely fails.
-
-#### Cultural Mindset
-Release days are characterized by profound anxiety and hero culture. Deployments are restricted to designated windows (e.g., "Tuesdays at 10:00 AM") and strictly forbidden on Fridays. Cross-functional teams organize massive bridge calls to coordinate releases, and failures are treated as inevitable "acts of God" rather than structural architectural debt.
-
-#### Transformation Path to Level 1
-1. **Enforce the Core Axiom Immediately:** Sever tag-time compilation. Implement a basic `build.yml` workflow on `main` that produces an immutable image tag (`:b<N>`).
-2. **Eliminate `:latest` and Mutable Tags:** Pin all deployment configurations to specific, immutable release tags.
-3. **Revoke Laptop Deployment Privileges:** Remove direct SSH and `kubectl` cluster-admin write access from developer workstations; route deployments through a centralized, automated script.
-
----
-
-### Level 1: Emerging Containerization (7 – 12 Points)
-
-#### Operational Reality
-Level 1 organizations have successfully modernized their basic development tooling. They build Docker containers, use GitHub Actions or GitLab CI, and deploy workloads to Kubernetes or managed container platforms. However, they remain burdened by subtle, systemic release debt. 
-
-While compilation is largely automated, the organization still rebuilds containers upon tag creation or promotes images across environments by copying blobs between registries. Manifests reference Semantic Version tags (e.g., `:v2.1.0`) rather than immutable SHA-256 digests, leaving clusters vulnerable to split-brain caching desynchronizations. Workstation CLIs and admin TUIs are updated haphazardly, frequently desynchronizing from backend APIs.
-
-#### Core Failure Modes
-* **The Split-Brain Cluster:** During an autoscaling event or pod restart, worker nodes run differing versions of an application under the identical `:v1.2.0` tag because the registry tag was overwritten and nodes used stale local caches.
-* **The Desynchronized Operator Tooling Outage:** A platform engineer runs a local CLI tool to perform routine database maintenance, but the CLI emits an obsolete schema payload that corrupts production data because the CLI was never updated to match the backend.
-* **The Ambient Secret Breach:** A compromised third-party GitHub Action exfiltrates permanent AWS IAM credentials stored in repository secrets, granting an attacker persistent control over infrastructure.
-
-#### Cultural Mindset
-Engineering leadership believes they have "modern DevOps" because they use containers and pull requests, yet on-call engineers remain on edge during releases. Post-mortems frequently identify "configuration drift" or "unforeseen dependency changes" as root causes, but treat them as isolated operational flukes rather than architectural failures.
-
-#### Transformation Path to Level 2
-1. **Mandate SHA-256 Digest Pinning (`RP-4`):** Configure admission webhooks or repository linters to block any container reference lacking a full `@sha256:` content digest.
-2. **Install In-Cluster GitOps Reconcilers (`RP-9`):** Deploy Argo CD as the sole applying authority in production, terminating all push-based CI deployment scripts.
-3. **Synchronize Multi-Surface Rails (`RP-6`, `RP-7`):** Unify CLI distribution into the release pipeline using sandboxed Homebrew `inreplace` automation.
-
----
-
-### Level 2: Disciplined GitOps (13 – 17 Points)
-
-#### Operational Reality
-Level 2 represents a mature, professional engineering organization. The Core Axiom is strictly respected: software builds once upon merge to `main`, and releases are metadata-only operations executed via registry API retagging. 
-
-Deployments are strictly declarative, reconciled continuously by an in-cluster GitOps engine (Argo CD). Developer workstations have zero direct write access to cluster APIs. Manifests strictly pin 64-character SHA-256 digests. Workstation tooling and server microservices release in lockstep via unified multi-surface release pipelines. Rollbacks are instantaneous Git pointer reverts that restore cluster stability in under a minute.
-
-#### Remaining Vulnerabilities
-While routine application delivery is highly reliable, the organization remains vulnerable at the architectural boundaries:
-* **The Undetected Cutover:** An engineer submits an otherwise pristine release PR that replaces an active RabbitMQ message broker with NATS JetStream without an accepted ADR or data migration runbook, severing live workflows upon merge.
-* **Control Plane / Data Plane Entanglement:** CI runners possess scoped permissions, but administrative infrastructure mutations (IAM, Vault, network topologies) share the same automated delivery rails as routine application updates.
-* **Audit Gaps:** The team can correlate Git commits with deployments, but lacks non-repudiable cryptographic attestations (SLSA, Cosign signatures) proving artifact provenance during formal third-party compliance audits.
-
-#### Cultural Mindset
-Releases are routine, predictable, and frequent. Deployments occur multiple times a day without fanfare. The engineering culture values blameless retrospectives and automated testing, but occasionally struggles with cross-cutting architectural changes that cross team boundaries.
-
-#### Transformation Path to Level 3
-1. **Install ADR-011 Cutover Governance (`RP-11`):** Mandate formal Architectural Decision Records and out-of-band human approvals for datastore, repository, and transport swaps.
-2. **Implement Zero Ambient CI Authority (`RP-12`):** Transition all CI runners to ephemeral OIDC-federated tokens with zero permanent secrets.
-3. **Deploy Cryptographic Provenance Chains (`RP-16`, `RP-17`):** Implement Cosign image signing, Rekor transparency logging, and Valkyrie MFAA elevation for high-impact control-plane mutations.
-
----
-
-### Level 3: Sovereign Autonomous Operations (18 – 20 Points)
-
-#### Operational Reality
-Level 3 represents the apex of modern systems engineering. The organization operates a sovereign, mathematically verifiable delivery engine. Every artifact is built once, addressed by its Merkle-root cryptographic digest, signed with Cosign, and accompanied by a machine-verifiable SLSA provenance ledger. 
-
-Delivery across all physical surfaces—Server GitOps (Rail A), Workstation Tooling (Rail B), and Client Applications (Rail C)—operates in unified lockstep. Staging and production share absolute, byte-identical parity. Infrastructure control-plane mutations are strictly segregated from application workloads and require action-hash-bound elevation tokens (Valkyrie MFAA). Autonomous agent systems can safely operate as release coordinators, linters, and verification checkers because human operators retain explicit, cryptographically bound release and cutover authority.
-
-#### Operational Guarantees
-* **Zero Deployment Regressions Caused by Drift:** It is physically impossible for unverified code, unpinned dependencies, or environmental discrepancies to enter production.
-* **Sub-60-Second Disaster Recovery:** In the event of an application logic flaw, the system converges back to the previous known good digest in seconds via declarative pointer rollback.
-* **Non-Repudiable Forensic Provenance:** The organization can prove the origin, commit hash, build environment, and signer identity of every line of code executing on any infrastructure node to any auditor instantly.
-
-#### Cultural Mindset
-Deployments are entirely non-events. Engineers deploy to production continuously on Friday afternoons with complete peace of mind. The organization operates with deep sovereign confidence, knowing that operational boundaries are maintained not by human vigilance, but by immutable mathematical invariants.
-
----
-
-## The Commercial Advisory Engagement Model with Ravenhelm LLC
-
-Installing RROM within an established enterprise is not merely a technical reconfiguration; it is an operational and cultural transformation. Internal platform teams frequently struggle to complete this journey alone: they face legacy pipeline inertia, conflicting product feature deadlines, and organizational resistance to tightening release boundaries.
-
-**Ravenhelm LLC** provides executive advisory, pipeline architecture refactoring, and sovereign delivery systems engineering. We work directly with VPs of Engineering, Chief Architects, and Platform Leads to eliminate release debt permanently.
-
-| Engagement Phase | Duration | Scope & Executive Deliverables |
+| Engagement Phase | Duration | Scope & Concrete Deliverables |
 | :--- | :--- | :--- |
-| **1. The Release Assessment** | 3 Days | Topology discovery, pipeline forensic audit, release debt ledger, executive roadmap. |
-| **2. Turnkey Migration Sprints** | 2 to 4 Weeks | Build-once pipeline refactoring, Argo CD GitOps install, private tap inreplace automation. |
-| **3. Sovereign Elevation & Auth** | 4 to 6 Weeks | Zero ambient CI authority (OIDC), action-hash MFAA elevation, Cosign provenance chains. |
+| **1. The Release Forensic Audit** | 3 Days | 100-point scorecard across all repos, empty-set checker audit, backup coverage proof, 90-day cutover plan. |
+| **2. Turnkey Rail Installation** | 2 to 4 Weeks | `Vitki`-pattern `build.yml`/`release.yml` split, Harbor internal bypass, Argo CD digest locking, Homebrew tap `inreplace`. |
+| **3. Zero-Ambient Elevation & Provenance** | 4 to 6 Weeks | **OpenBao AppRole** onboarding, **Valkyrie MFAA** Action-Hash Elevation, Cosign + **Týr/Vór** compliance ledgers. |
 
----
-
-### 1. The 3-Day Release Pipeline Assessment
-
-The 3-Day Release Pipeline Assessment is a high-intensity, fixed-scope diagnostic engagement designed to evaluate your entire delivery estate against the RROM standard and deliver an actionable executive transformation blueprint.
-
-#### Engagement Structure
-
-* **Day 1: Ingress & Topology Discovery**
-  * In-depth interview with the Chief Architect, Platform Lead, and Principal Release Operator.
-  * Deep-dive architectural review of repository structures, code host settings (GitHub/Forgejo/GitLab), branch protection rules, and CI workflow configurations.
-  * Registry architecture and network boundary mapping: analyzing Harbor, ECR, Artifact Registry, and network transit paths.
-* **Day 2: Forensic Pipeline Audit & Debt Ledgering**
-  * Hands-on inspection of build scripts, container Dockerfiles, dependency resolution mechanisms, and package management setups.
-  * Audit of staging-to-production parity: evaluating digest stability, runtime configuration mechanisms, and environment variable injection.
-  * Security and elevation audit: cataloging ambient runner secrets, scanning cluster RBAC configurations, and assessing rollback capabilities under simulated stress.
-* **Day 3: Executive Readout & Remediation Architecture**
-  * Delivery of the **Comprehensive Release Debt Ledger**, scoring every repository across the 10 diagnostic areas.
-  * Presentation of the **Executive Gap Analysis & Risk Matrix** to engineering leadership.
-  * Delivery of the **Phased RROM Implementation Roadmap**, outlining the precise sequence of technical refactors required to achieve Tier 3 / Tier 4 sovereign maturity.
-
-#### Key Assessment Deliverables
-1. **The Executive Release Debt Ledger:** A quantified, multi-repository scorecard identifying exact anti-patterns, security exposures, and operational failure modes.
-2. **The Parity & Ingress Audit Report:** Detailed technical teardown of your build and containerization pipelines, isolating all tag-time compilation instances and unpinned dependency vulnerabilities.
-3. **The 90-Day Sovereign Transformation Roadmap:** A concrete, prioritized implementation plan tailored to your team scale, infrastructure topology, and business delivery commitments.
-
----
-
-### 2. Turnkey Migration Sprints (2 to 4 Weeks)
-
-For organizations seeking rapid, guaranteed execution, Ravenhelm LLC delivers hands-on engineering sprints to refactor existing legacy pipelines into sovereign RROM delivery rails.
-
-* **Sprint Phase 1: Decoupling Build from Release**
-  * Dissecting monolithic CI pipelines into deterministic `build.yml` (ingress on `main`) and `release.yml` (metadata retagging) workflows.
-  * Establishing monotonic sequential build numbers (`:b<N>`) and commit links (`:sha-<commit12>`).
-  * Configuring Harbor or enterprise OCI registries for API-driven manifest promotion without recompilation (`RP-1`, `RP-2`, `RP-3`).
-* **Sprint Phase 2: GitOps Reconciliation & Digest Locking**
-  * Establishing GitOps configuration repositories managed exclusively by in-cluster controllers (Argo CD) (`RP-9`).
-  * Automating full 64-character `@sha256:` content digest pinning across all Helm charts and Kubernetes manifests (`RP-4`).
-  * Implementing pre-commit and CI validation linters to reject unpinned or mutable tags automatically.
-* **Sprint Phase 3: Multi-Surface Rail Synchronization**
-  * Architecting private Homebrew tap repositories (`Formula/<tool>.rb`) for internal developer CLIs and operational TUIs (`RP-6`).
-  * Implementing sandboxed `inreplace` version substitution in packaging scripts, preserving zero-drift source parity within canonical Git trees (`RP-7`).
-  * Installing automated release PR generators that synchronize server manifests and workstation formulas in a single atomic pull request.
-* **Sprint Phase 4: Parity Gates & Cutover Governance**
-  * Embedding `check-release-source-parity.sh` into release candidate PR validation, mechanically preventing source code drift (`RP-5`).
-  * Codifying ADR-011 cutover doctrine into engineering standards and CI pull request checks (`RP-11`).
-  * Authoring and testing automated fail-closed rollback runbooks (`RP-14`).
-
----
-
-### 3. Sovereign Infrastructure & Valkyrie Elevation Architecture
-
-For high-consequence enterprise platforms, defense-tech systems, and regulated environments, Ravenhelm LLC designs and deploys zero-trust elevation architectures:
-
-* **Elimination of Ambient CI Authority:** Replacing all static repository secrets with ephemeral OpenID Connect (OIDC) federation, provisioning short-lived, least-privilege tokens via OpenBao / HashiCorp Vault (`RP-12`).
-* **Valkyrie Multi-Factor Action Approval (MFAA):** Installing cryptographic action-hash approval gates for high-impact infrastructure mutations (`RP-17`). Control-plane modifications (IAM policies, database migrations, network configurations) generate deterministic plan hashes that require out-of-band, multi-factor approval before execution.
-* **Cryptographic Attestation & SLSA Provenance:** Integrating Sigstore Cosign and Rekor transparency ledgers into ingress build pipelines, cryptographically signing container images and generating immutable provenance attestations for regulatory compliance (`RP-16`).
-
----
-
-## Executive Engagement Protocol
-
-Engagements with Ravenhelm LLC are structured for senior engineering leadership who require uncompromising delivery reliability and cryptographic infrastructure sovereignty.
-
-To initiate a confidential assessment or schedule an architectural consultation:
-
-* **Principal Advisor:** Nathan Walker, Founder & Principal Architect
-* **Direct Executive Contact:** [`nate@ravenhelm.co`](mailto:nate@ravenhelm.co)
-* **Advisory Portal:** [`https://ravenhelm.co`](https://ravenhelm.co)
-* **Prerequisites for Assessment:** Read-only repository audit access, representative CI pipeline definitions, and participation of the lead platform architect during discovery interviews.
+To schedule a 3-Day Release Forensic Audit or architectural consultation:
+- **Principal Architect:** Nathan Walker, Founder & Principal Architect
+- **Direct Contact:** [`nate@ravenhelm.co`](mailto:nate@ravenhelm.co)
+- **Portal:** [`https://ravenhelm.co`](https://ravenhelm.co)
 
 <!-- RUBRIC_CHECK: Chapter 14 conforms to RROM specification. -->

@@ -1,278 +1,271 @@
 # Chapter 4: The Operator Roles
 
-<!-- LICENSE: RROM Community License 1.0 (c) 2026 Ravenhelm LLC -->
+<!-- LICENSE: © 2026 Ravenhelm LLC. Licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Attribution required: "Ravenhelm LLC — Ravenhelm Release Operations Methodology (RROM), https://ravenhelm.dev". -->
 
-## Sovereign Human and Agent Responsibilities
+## Card `dr-8` and the Law of the Human Signer
 
-It is Thursday evening at 6:45 p.m. An engineer has pushed a hotfix directly to a feature branch, tagged `v2.4.1` locally from their workstation terminal, and pushed both branch and tag to the code host. In the release channel, someone asks, "Has this hit production?" The engineer replies, "CI passed, so it should be live." 
+On 2026-09-14, during the architectural specification of `Draupnir` (the estate's cryptographic attestation and issuance spine), an autonomous supervisor session filed court card `dr-8` on the `Doomcourt` docket. The card asked a design question that sounded reasonable to a machine: how should `Draupnir` issue credentials for *"unattended issuance with no human signer"* when a background cron job, CI runner, or automated anchor job executes on a schedule?
 
-Meanwhile, inside the production cluster, Argo CD is crash-looping. The container tag `v2.4.1` was pulled, but it pointed to an untracked ad-hoc binary that was compiled without the database migration bundled in the build container. The release manifest contained uncommitted local edits, and no runtime probe was ever queried. When the incident channel opens, accountability evaporates into distributed ambiguity. The developer says, "DevOps owns the deployment manifests." The DevOps engineer says, "I don't write application code or review PRs." The product manager says, "I approved the ticket in the sprint board."
+The ruling came back on sequence 859 in nineteen words: *"the entire point is accountability being attributed to the human actor. this shouldnt have even been a question."*
 
-This is the failure mode the Ravenhelm Release Operations Methodology (RROM) is engineered to eradicate. It occurs whenever organizations treat release operations as an ambient, communal chore rather than a sovereign operational discipline. When everyone is nominally responsible for releasing software, no one is actually accountable for the integrity of production.
+There is no such thing as an unattributed autonomous action in a sovereign engineering estate. A cron job does not have a conscience, a CI runner cannot answer a subpoena, and an LLM worker slice cannot take responsibility when a bad release corrupts a production database. When an automated job runs at 3:00 a.m., it executes under a **standing mandate cryptographically signed by a named human operator**. Every wallet delegation, `OpenBao` AppRole lease, `Harbor` promotion, and `norns-gitops` commit chains back to a specific human actor.
 
-Under RROM, release management is partitioned into four distinct, non-overlapping roles with rigid boundary contracts:
+Wait three weeks and look at the opposite mistake on the exact same workbench. On 2026-10-08 (`frs #88`), KEDA autoscaling for the `forgejo-runner-scheduler` (`frs`) fleet suddenly stopped scaling runner pods across `Norns` and `eikthyrnir`. The root cause was the inverse of card `dr-8`: instead of provisioning a dedicated, service-scoped credential for the `frs` control daemon (backed by a human-signed mandate), someone had wired the production control loop to authenticate using the operator's **personal access token (PAT)**. The moment that personal token's interactive scopes shifted, the production autoscaler went blind.
+
+Hold both scars in your hand at once:
+1. **Accountability always chains to a human actor (`dr-8`, 2026-09-14):** No machine issues, merges, or elevates on its own authority. Every automated rail operates under a verifiable human mandate.
+2. **Control planes execute with their own scoped service credentials (`frs #88`, 2026-10-08):** Human accountability never means stuffing your personal SSH key or personal PAT into a daemon's environment block.
+
+Those two boundaries come straight out of J3B capital fleet counterintelligence. When we built, funded, and commanded capital fleets in one alliance, one compromised recruiter or one shared hangar key ended a war. We built automated tools that pulled full API keys, parsed employment histories for suspect gaps, and cross-referenced wallet journals at 3:00 a.m. Two structural laws kept the fleet alive: **tools deliver evidence, but a human clicks the accept/reject button**, and **separations between producer, commander, and witness exist to make innocence demonstrable**, not merely to catch a thief. When everyone shares one communal pool of write permissions, nobody can prove their hands were clean when the hangar empties.
+
+Under RROM, release operations are partitioned into four non-overlapping operational roles:
 
 | Role | Actor Profile | Workspace & Scope | Authority Boundary |
 | :--- | :--- | :--- | :--- |
-| **The Author** | Human Engineer / AI Worker | Dedicated git worktree (`feat/*`); application diffs, unit tests. | Strictly prohibited from tagging releases, editing values manifests, or deploying. |
-| **Release Custodian** | Tech Lead / Release Bot | Integration trunk (`main`); identifies `:b<N>`, generates release PRs. | Enforces Source Parity Rule (RP-5); creates annotated tags; runs parity checks. |
-| **Delivery Closer** | Fleet Supervisor (Human) | Production release seat; merge authority. | Executes Merge-Then-Deploy (RP-10); unmerged PRs stay unmerged; verifies runtime proof. |
-| **The Gatekeeper** | Sovereign Operator (Human) | High blast radius infrastructure & cutovers. | Issues cryptographic plan-hash signatures via hardware FIDO2 key for elevation. |
+| **The Author** | Human Engineer / `Doom` Worker Slice | Dedicated `.bare` git worktree (`feat/*`); application code & unit tests. | Barred from tagging releases, editing `chart/values.yaml` digest pins, or deploying. |
+| **Release Custodian** | Tech Lead / Release Daemon | Integration trunk (`main`); selects `:b<N>`, runs `release-pr.sh`. | Enforces Source Parity Rule (**RP-5**); creates annotated tags; never self-merges. |
+| **Delivery Closer** | Fleet Supervisor (Human Seat) | Production release seat; holds non-delegable merge authority. | Executes **Merge-Then-Deploy (RP-10)**; checks expected-fire; proves live reachability (**RP-13**). |
+| **The Gatekeeper** | Sovereign Operator (Human MFAA) | High-blast-radius control plane, `OpenBao`, `Zitadel`, & **ADR-011** cutovers. | Signs exact `sha256` execution plan hashes via hardware FIDO2 key (**Valkyrie MFAA, RP-17**). |
 
-These roles are not job titles; they are sovereign runtime hats governed by explicit capability ceilings and invariants. An actor—whether a principal engineer, a platform lead, or an autonomous AI agent—steps into a specific role, executes its bounded mandate under strict custody rules, and yields the seat.
+These roles are not HR job titles; they are runtime hats enforced by repository permissions, CI linters, and dispatch rules. Whether a human principal engineer or an autonomous `Doom` worker slice steps up to the terminal, they occupy one hat at a time and obey its hard ceiling:
 
-| Role | Primary Actor | Core Invariant | Absolute Ceiling | Primary Tools |
+| Role | Primary Actor | Core Invariant | Absolute Ceiling | Primary Bench Tools |
 | :--- | :--- | :--- | :--- | :--- |
-| **The Author** | Human Engineer or Autonomous Worker | Application logic correctness and test suite verification. | Never tags releases; never edits production manifests. | Disposable Git Worktrees, Language Toolchains, Unit Tests. |
-| **The Release Custodian** | Technical Lead or Autonomous Release Daemon | Provenance verification, metadata hygiene, zero source drift. | Never introduces source code edits; never merges release PRs. | `scripts/release-pr.sh`, `check-release-source-parity.sh`. |
-| **The Delivery Closer** | Fleet Supervisor or Designated Release Lead | Unbroken custody of authorization; runtime proof of live traffic. | Never delegates merge or deploy execution across sessions. | Code Host API, GitOps Engine (Argo CD), Live Health Probes. |
-| **The Gatekeeper** | Sovereign Human Authority (MFAA Holder) | Defense against catastrophic architectural and identity blast radius. | Never grants ambient, reusable credentials or bypasses plan hashing. | Valkyrie MFAA, Hardware Security Keys (FIDO2), OpenBao Tokens. |
+| **The Author** | Human Engineer or `Doom` Slice | Application logic correctness and test suite verification. | Never tags releases; never edits production manifests. | `.bare` Git Worktrees, `eat prime`/`eat read`, Language Toolchains. |
+| **The Release Custodian** | Tech Lead or Release Automation | Provenance verification, Parity Triangle, zero source drift. | Never introduces source code edits; never merges release PRs. | `scripts/release-pr.sh`, `check-release-source-parity.sh`, `check-release-tag.sh`. |
+| **The Delivery Closer** | Fleet Supervisor (Human Session) | Unbroken custody of approval; live runtime proof on the wire. | Never delegates merge execution to a subagent; never trusts exit `0`. | Forgejo API, `norns-gitops`, Argo CD, Live Socket Probes. |
+| **The Gatekeeper** | Sovereign Human (MFAA Holder) | Isolation of identity, secret, and architectural blast radii. | Never grants ambient admin tokens or signs un-hashed plans. | **Action-Hash Elevation (Valkyrie MFAA)**, Hardware FIDO2 Keys, `OpenBao`. |
 
 ---
 
-## 1. The Author (Human Engineer or Autonomous Coding Agent)
+## 1. The Author (Human Engineer or Autonomous Coding Slice)
 
-The Author is the creative engine of the software estate. Whether fulfilled by a staff software engineer or an autonomous coding agent operating in an isolated runtime slice, the Author's purpose is singular: to advance application functionality, resolve defects, and optimize system behavior.
+The Author writes application code, fixes bugs, and builds tests. On the Ravenhelm floor, the Author seat is filled interchangeably by human engineers and bounded autonomous coding agents (`Doom` slices, Claude Code, Codex, and OpenCode workers).
 
-### Scope Boundaries and Invariants
-The Author's operational perimeter is strictly confined to application source files, unit and integration tests, and local developer documentation:
+### Scope Boundaries and Worktree Custody
 
-* **Isolation in Disposable Git Worktrees (RP-18):** Authors never execute work directly on `main` or inside a shared, dirty working tree. All development occurs inside dedicated, ephemeral git worktrees established via the Checkout Custody Standard (`git worktree add`). Worktree paths project canonical identity, history lives centrally in `.bare/`, and worktrees are destroyed upon PR submission. Stashing changes (`git stash`) across branches is strictly forbidden; work in progress is captured in structured WIP commits.
-* **The Pull Request Deliverable:** The Author's terminal deliverable is an integrated, verified pull request targeting the integration trunk (`main`). This PR must carry passing continuous integration checks, exhaustive test coverage, and clear commit messaging adhering to Conventional Commits.
-* **The Hand-Off Point:** Once an Author's PR merges to `main`, an immutable build artifact (`:b<N>`) is produced automatically on ingress (RP-1). At this exact moment, the Author's custody terminates. The Author does not shepherd the build into staging, tag releases, or monitor production traffic.
+The Author's perimeter is strictly limited to application source code, unit/integration tests, and module documentation:
 
-### The Author's Absolute Ceilings
-To maintain structural separation of concerns, the Author is constrained by two non-negotiable boundaries:
+- **Isolation in Disposable `.bare` Git Worktrees (RP-18):** Authors never commit directly to `main` and never share a dirty working tree. Every branch lives in its own disposable worktree projected from a canonical `.bare/` repository with an explicit `remote.origin.fetch` refspec (`+refs/heads/*:refs/remotes/origin/*`). Running `git stash` to carry edits across branches is forbidden; work in progress is saved via explicit WIP commits or `doom checkpoint`. Before a worktree is removed, custody checks verify zero uncommitted lines (preventing the 2026-08-31 `yager/rav-1541-dashboard` failure where 277 uncommitted lines of `TurnPhase` state machine sat stranded inside a merged worktree).
+- **The Pull Request Deliverable:** The Author's work ends at an open, tested pull request against `main`, bound to a Linear issue (`RAV-<id>`), with passing Forgejo Actions checks and advisory review from `Snotra`.
+- **The Hand-Off Point:** The millisecond the Author's PR merges to `main`, `.forgejo/workflows/build.yml` compiles the ingress unit (`:b<N>`, `:sha-<sha12>`, `:uat`, `@sha256:...`) and pushes it to `Harbor` (**RP-1**). The Author's job is over.
 
-1. **Authors Never Tag Releases:** Release tags (`vX.Y.Z`) represent authorized operational names assigned to pre-existing, tested artifacts. When an author tags a commit during feature development, they conflate compilation with release authorization. This invites unverified binaries into production and destroys audit trails.
-2. **Authors Never Modify Release Manifests:** An authoring PR must never alter production Helm values files, container digest pins (`@sha256:...`), or deployment target manifests. Modifying release manifests inside an application feature branch breaks the Release Parity Rule (RP-5) and forces premature configuration into the trunk before the underlying build artifact has been compiled or tested.
+### The Author's Hard Ceilings
+
+1. **Authors Never Tag Releases:** Pushing a `vX.Y.Z` tag from an authoring worktree bypasses UAT soak verification and confuses feature iteration with release authorization.
+2. **Authors Never Touch Production Digest Pins:** Feature PRs do not edit `chart/values.yaml` production digest pins or `norns-gitops` manifests. Mixing feature code with release metadata breaks `check-release-source-parity.sh` (**RP-5**) and tries to reference a container digest before `build.yml` has even minted it.
 
 ---
 
 ## 2. The Release Custodian
 
-The Release Custodian is the guardian of artifact provenance and release metadata. Where the Author focuses on functional logic, the Custodian focuses on structural integrity, traceability, and version governance. This role may be performed by a human release engineer, an engineering lead, or a fully automated release daemon executing on a schedule.
+The Release Custodian turns a proven `:b<N>` ingress build into a verified, zero-drift Release Pull Request. Because every step in this phase is deterministic and verifiable by script, the Custodian seat can be run by a human tech lead or an automated release preparation slice.
 
-### The Responsibilities of the Custodian
-The Custodian transforms an anonymous, pre-tested build artifact into an authorized, human-readable release candidate:
+### The Custodian's Bench Recipe
 
-* **Identifying the Target Build:** The Custodian inspects the trunk integration stream (`main`) and identifies an incremental build sequence (`:b<N>`) that has successfully passed all automated regression and end-to-end test suites in the pre-production environment (UAT/staging).
-* **Mechanical Execution of `release-pr.sh`:** The Custodian does not manually modify files or write bespoke changelogs. Instead, they execute the standardized release script:
-  ```bash
-  ./scripts/release-pr.sh b42 v1.4.0
-  ```
-  The script performs four mechanical operations in strict lockstep:
-  1. Inspects the remote artifact registry (Harbor) to confirm that `:b42` exists and extracts its canonical, immutable digest (`@sha256:7f9a...3c`).
-  2. Updates deployment manifests (e.g., `Chart.yaml`, `values.yaml`) to reference version `v1.4.0` and pin the exact build digest.
-  3. Synthesizes a structured, categorized `CHANGELOG.md` entry derived from conventional commit messages between the prior release tag and `:b42`.
-  4. Generates a dedicated release branch (`release/v1.4.0`) and opens a formal Release Pull Request against `main`.
+1. **Select the Proven Build Unit:** Inspect `main` and `:uat` telemetry to identify the monotonic build number (`:b42`) that has passed integration verification in staging.
+2. **Run `scripts/release-pr.sh`:** From a clean worktree rooted in `.bare`, execute:
 
-### Source Parity Enforcement (RP-5)
-The supreme invariant of the Release Custodian is the **Release Parity Rule**: *a release candidate must prove zero source code drift against the parent build commit*.
+   ```bash
+   ./scripts/release-pr.sh b42 v1.4.0
+   ```
 
-Before a Release PR can be considered valid, the Custodian executes the canonical verification script:
+   The script performs four deterministic steps:
+   - Queries `Harbor` over the Registry v2 API (`scripts/harbor-artifact.sh digest b42`) to confirm `:b42` exists and pulls its immutable `@sha256:7f9a...3c` digest.
+   - Updates `chart/Chart.yaml` (`version` and `appVersion: "1.4.0"`) and `chart/values.yaml` (`tag: "v1.4.0"`, `digest: "sha256:7f9a...3c"`, `build: "b42"`).
+   - Generates the structured `CHANGELOG.md` section for `v1.4.0` from commits landed between the previous release and `:b42`.
+   - Pushes `release/v1.4.0` and opens the Release PR against `main`.
+
+### Enforcing the Source Parity Gate (RP-5)
+
+The Release Custodian's primary law is **RP-5 (Parity Precedes Promotion)**: a release branch must contain zero application source code changes relative to the parent build commit on `main`.
+
+Before handing the PR to the Delivery Closer, the Custodian runs both verification scripts:
+
 ```bash
+./scripts/check-release-tag.sh v1.4.0
 ./scripts/check-release-source-parity.sh
 ```
 
-This gate performs a cryptographic diff between the target build commit SHA on `main` and the release candidate branch, filtering out authorized metadata paths:
+`check-release-tag.sh` proves the Parity Triangle (`v1.4.0` tag == `values.yaml` tag == `Chart.yaml` `appVersion`) and confirms that the pinned `@sha256:` digest actually exists in `Harbor`. `check-release-source-parity.sh` runs `git diff --name-only origin/main` and fails closed if any file outside `chart/`, `CHANGELOG.md`, or `docs/runbooks/release.md` was touched:
+
 ```bash
 git diff "${BUILD_COMMIT_SHA}..HEAD" -- . \
-  ':!Chart.yaml' \
-  ':!values.yaml' \
+  ':!chart/Chart.yaml' \
+  ':!chart/values.yaml' \
   ':!CHANGELOG.md' \
-  ':!package.json' \
-  ':!package-lock.json'
+  ':!docs/runbooks/release.md'
 ```
 
-If a single line of application source code, configuration logic, or embedded asset has drifted, the check exits with a non-zero failure code. The release is immediately rejected. Sneaking "just one tiny bugfix" or "a quick CSS adjustment" into a release commit bypasses build-time test suites, invalidates binary provenance, and violates RP-5.
+If a single line of `.rs`, `.go`, `.py`, `.ts`, or `Cargo.toml` appears in that diff, the gate exits `1`. You never patch source code on a release branch.
 
-### Formulation of Annotated Git Tags
-The Release Custodian prepares the signed, annotated git tag:
+### Preparing the Annotated Tag
+
+Once the Release PR merges, the release workflow attaches the annotated git tag anchored to the merge commit:
+
 ```bash
-git tag -s -a v1.4.0 -m "Release v1.4.0 (build :b42, digest sha256:7f9a...3c)"
+git tag -a v1.4.0 -m "Release v1.4.0 (build :b42, digest sha256:7f9a...3c)"
 ```
-Under RROM, release tags are never floating markers on arbitrary developer branches. They are cryptographically signed, annotated tags anchored to the exact commit SHA that produced the underlying build artifact.
 
 ---
 
-## 3. The Delivery Closer (The Supervisor)
+## 3. The Delivery Closer (The Supervisor Seat)
 
-The Delivery Closer is the operational supervisor who holds the merge seat. This role is the final, sovereign gatekeeper of production convergence. In human teams, this is the technical director, on-call supervisor, or platform lead. In autonomous multi-agent environments, this is the Fleet Supervisor seat.
+The Delivery Closer holds the merge seat. This is the human-accountable supervisor role that bridges declared intent (the Release PR) and live production reality (`Norns` K3s and workstation taps).
 
 ### The Rule of Unbroken Custody
-The cornerstone of operational accountability is the **Rule of Unbroken Custody**:
+
+In multi-agent operations governed by Dispatch and `Doomcourt`, merge execution is the one responsibility that **never delegates downward**:
 
 > ### The Rule of Unbroken Custody
-> *The exact operational session that receives human authorization to execute a merge must personally execute that merge and shepherd the deployment through verification. Merge authority is non-transferable and can never be delegated to subordinate workers, child agents, or background queues.*
+>
+> *The exact supervisor session that receives explicit human approval for a specific PR ("merge it" / "approved, ship" / "LGTM merge") must execute that merge itself and ride the deployment through live runtime verification. Merge execution is never delegated to a subagent, worker slice, or background queue.*
 
-When Nate or an authorized engineering leader inspects a Release PR and issues the command—"Merge it," "Approved, ship," or "LGTM merge"—that approval is granted strictly to the receiving supervisor session. 
+Why is merge delegation banned across the estate? Because only the session that heard the human operator grant approval first-hand possesses the verified context of *which* PR was approved and under what conditions. Handing a merge off to a subagent severs the custody chain: the worker cannot verify first-hand approval, and if a worker role binding is unavailable, routing a merge to a subagent either stalls an approved ship or trains workers to merge without direct human sign-off. The supervisor merges; the supervisor verifies.
 
-If Session A receives human approval, Session A cannot file a background ticket or invoke an asynchronous subagent to "do the merge." Delegating the merge splits the custody chain. The subordinate session lacks first-hand context, cannot verify the identity of the approval, and cannot guarantee immediate deployment shepherding. The session that received the approval holds the merge seat until production convergence is verified.
+### Executing Merge-Then-Deploy (RP-10)
 
-### The Merge-Then-Deploy Lifecycle (RP-10)
-Under RROM, merging a release PR and deploying software are not two disconnected decisions. **Approval to merge is approval to ship.**
+On the Ravenhelm floor, **a merge to `main` is followed immediately by the deploy to prod.** Merging a PR and walking away - leaving the code sitting undeployed on `main` while Linear says `Done` - was the exact failure mode caught on 2026-09-13 when three merged PRs were reported as finished tools while `the-work` masthead sat on yesterday's container.
 
-The traditional practice of "merge now, deploy next Tuesday" is an operational pathology. It leaves unverified, dormant code sitting on `main`, blocks subsequent emergency fixes, and obscures the relationship between source state and runtime state. 
+When the Delivery Closer squash-merges an approved Release PR, they execute a five-step closeout without leaving the terminal:
 
-When the Delivery Closer executes a squash merge of an approved Release PR, they immediately trigger the deterministic Merge-Then-Deploy pipeline:
-1. **Squash Merge Execution:** The Delivery Closer merges the release PR to `main` via the code host API, recording the approver's identity and timestamp in the merge commit metadata.
-2. **Registry Name Binding:** The code host CI pipeline catches the merge event and attaches the official SemVer tag (`:v1.4.0`) to the pre-existing build digest (`:b42` / `sha256:7f9a...3c`) within Harbor. Zero compilation occurs (RP-2).
-3. **Multi-Surface Rail Execution (RP-6):** If the repository serves multiple surfaces (e.g., K3s backend service and a workstation CLI), the Closer ensures all rails execute simultaneously. For CLI formulas, the sandboxed `inreplace` automation updates the Homebrew tap formula (`nate/tools`) without dirtying git history (RP-7).
-4. **GitOps Convergence (RP-9):** The release pipeline updates the target digest pin inside the sovereign GitOps repository (`norns-gitops`). Argo CD detects the git commit and initiates declarative synchronization.
+1. **Squash Merge via Forgejo API:** Merge the approved Release PR to `main` only after all branch protection checks (`check-release-tag.sh`, `check-release-source-parity.sh`, `Snotra` review) are green.
+2. **Expected-Fire Verification:** Confirm within 30 seconds that `.forgejo/workflows/release.yml` actually spawned a run for the new merge commit SHA. (On 2026-09-16, `deploy.yml` silently failed to fire on 1 of 24 pushes to `main`; checking only for failed runs missed the silent non-fire completely.)
+3. **Zero-Compile Registry Retag (RP-2):** Watch `release.yml` execute `scripts/harbor-artifact.sh retag`, attaching `:v1.4.0` to `:b42`'s `@sha256:7f9a...3c` digest in `Harbor` and publishing the OCI Helm chart (`vitki-1.4.0.tgz`).
+4. **Dual-Rail Execution (RP-6, RP-7):** If the repo is dual-surface (`Ullr`/`Yager`), verify that both Rail A (`norns-gitops` digest bump) and Rail B (`nate/tools` Homebrew tap formula update with sandboxed `inreplace` + local `brew upgrade` reinstall) complete in lockstep.
+5. **Declarative GitOps Sync (RP-9):** Confirm Argo CD on `Norns` pulls the updated `norns-gitops` target revision and rolls the deployment pods.
 
-### Proof of Life (RP-13)
-The Delivery Closer does not close their terminal session when the merge command returns exit code `0`. **Shell success is not proof of life.** A shell script exiting cleanly indicates only that commands ran without syntax errors; it does not prove that container pods are healthy or that traffic is routing correctly.
+### Proving Life on the Wire (RP-13)
 
-The Delivery Closer remains on duty until independent runtime verification satisfies four gates:
-1. **Pod Rollout Health:** Kubernetes reports zero crash-looping containers and confirms complete rollout:
+The Delivery Closer never trusts a green CI badge or a shell exit code `0`. Before closing the Linear issue or reporting the ship complete (`pr-ship-report`), the Closer collects four live receipts from the running system:
+
+1. **Rollout Convergence on `Norns`:**
+
    ```bash
-   kubectl rollout status deployment/bifrost -n ravenmaskos --timeout=120s
+   kubectl rollout status deployment/vitki -n vitki --timeout=120s
    ```
-2. **Digest Verification:** The running pods are actively executing the exact immutable SHA-256 digest declared in the release manifest:
+
+2. **Running Digest Parity:** Verify that the K3s kubelet on `urd`, `verdandi`, or `skuld` is running the exact `@sha256:` digest pinned in `chart/values.yaml`:
+
    ```bash
-   kubectl get pods -n ravenmaskos -l app=bifrost \
+   kubectl get pods -n vitki -l app.kubernetes.io/name=vitki \
      -o jsonpath='{.items[*].status.containerStatuses[*].imageID}'
    ```
-3. **Live Health Probe:** The service responds with HTTP `200 OK` across the internal live network interface:
-   ```bash
-   curl -fsS https://bifrost.ravenmask.net/healthz
-   ```
-4. **Version Contract Match:** The runtime application queries return the exact released SemVer string (`v1.4.0`) and monotonic build number (`b42`).
 
-Only when all four gates pass does the Delivery Closer issue the final release report, update the project tracking ledger, and relinquish the merge seat.
+3. **Live Wire Reachability:** Hit the live ingress endpoint (`curl -fsS https://vitki.ravenhelm.dev/healthz`) and verify HTTP `200 OK`.
+4. **Build Coordinate Match:** Query the version endpoint (or run `<tool> --version` and `which -a <tool>` on the workstation for Rail B) to confirm the live binary reports `v1.4.0` and build `:b42`, with zero stale shims shadowing `/opt/homebrew/bin`.
+
+Only when all four receipts are pasted into the validation record does the issue move from `Validation` to `Done`.
 
 ---
 
-## 4. The Gatekeeper (Valkyrie Human-in-the-Loop)
+## 4. The Gatekeeper (Action-Hash Elevation / Valkyrie MFAA)
 
-While routine application releases flow autonomously through the Merge-Then-Deploy pipeline, certain operational events carry catastrophic blast radii. These are designated as **Elevation Events**. For these events, the sovereign **Gatekeeper** role activates.
+Routine application deployments stay inside an established architectural envelope and flow through the Delivery Closer's **Merge-Then-Deploy** rail. Operations that alter the envelope itself - identity providers, secret engines, registry RBAC, or architectural cutovers - cross into a different blast radius. Those operations belong to **The Gatekeeper**.
 
-### Elevation Boundaries (RP-11, RP-17)
-The Gatekeeper role governs operations where an error or malicious compromise could destroy cluster integrity, wipe persistent datastores, or leak root credentials:
-* **Identity and Access Plane Mutations:** Altering authentication policies, SSO client registrations, or role mappings in Zitadel or Keycloak.
-* **Secrets Engine Mounts:** Modifying OpenBao/Vault root policies, access control lists, or storage backend configurations.
-* **Registry Governance:** Altering Harbor RBAC, project immutability policies, or public replication endpoints.
-* **Architectural Cutovers:** Swapping production datastores (e.g., PostgreSQL major version migrations), replacing communication transports, or executing non-additive database schema drops.
+### What Triggers Gatekeeper Elevation (RP-11, RP-17)
 
-Routine deployments reconcile application code within existing architectures. Cutovers and elevation events alter the underlying platform fabric. Under RP-11, cutovers require an Architectural Decision Record (ADR), an explicit data migration plan, and formal human Gatekeeper authorization.
+Four classes of change cannot ship as routine application releases:
+- **Identity & Access Control Plane Mutations:** Modifying SSO clients, OIDC trust policies, or role grants in `Zitadel` or `Keycloak`.
+- **Secret Engine & PKI Mutations:** Altering `OpenBao` root policies, AppRole secret-id scopes, or `Draupnir` signing mandates.
+- **Registry & Runner Governance:** Changing `Harbor` project immutability rules, robot account scopes, or `forgejo-runner-scheduler` (`frs`) budgets.
+- **Architectural Cutovers (`ADR-011`):** Swapping the codebase serving a production endpoint, migrating a backing datastore (e.g., Postgres to ClickHouse on `vakr`), or removing a transport layer. As the 2026-07-18 `Bifrost` cutover incident proved, a cutover disguised as a deploy destroys production custody.
 
-### The Valkyrie MFAA Protocol
-To ensure that elevation events cannot be triggered by compromised CI runners, stolen developer laptops, or runaway autonomous agents, Ravenhelm enforces the **Valkyrie Multi-Factor Action Approval (MFAA)** protocol.
+### Action-Hash Elevation: The Valkyrie MFAA Protocol
 
-| Protocol Step | Originator | Target | Action & Cryptographic Invariant |
+Under **The Zero-Ambient Elevation Doctrine** (**RP-12**, **RP-17**), neither CI runners nor agent slices hold standing admin credentials for identity or secret planes. Instead, privileged changes execute through **Action-Hash Elevation (Valkyrie MFAA)**:
+
+| Step | Actor | Surface | Mechanical Action & Cryptographic Receipt |
 | :--- | :--- | :--- | :--- |
-| **1. Plan Generation** | Unprivileged CI | Local Workspace | Generates deterministic execution plan (`terraform plan -out=plan.bin`). |
-| **2. Hash Computation** | Unprivileged CI | Local Workspace | Computes immutable SHA-256 digest of plan file: `SHA256(plan.bin) = 9f8a...`. |
-| **3. Challenge Dispatch** | Unprivileged CI | Human Gatekeeper | Submits challenge payload: `{action: "apply", target: "prod", plan_sha256}`. |
-| **4. Human Inspection** | Human Gatekeeper | Out-of-Band Channel | Inspects plan diff; verifies no unauthorized destructive actions. |
-| **5. Hardware Signing** | Human Gatekeeper | Unprivileged CI | Signs challenge using hardware FIDO2 key (Ed25519); issues single-use token. |
-| **6. Execution & Burn** | Unprivileged CI | Secret Engine | Secret engine verifies `Token.PlanSHA == Plan.SHA`, burns token, applies change. |
+| **1. Read-Only Plan** | Unprivileged CI AppRole | Ephemeral Runner | Runs `terraform plan -out=plan.bin` (or `bao` dry-run) using a read-only `OpenBao` AppRole. |
+| **2. Action Hashing** | Unprivileged CI AppRole | Ephemeral Runner | Computes the exact SHA-256 digest of the binary plan: `SHA256(plan.bin) = 9f8a...`. |
+| **3. Challenge Emission** | Valkyrie Gate | Out-of-Band Channel | Halts the job and dispatches `{action, target, plan_sha256, diff_summary}` to the human Gatekeeper. |
+| **4. Bench Inspection** | Human Gatekeeper | Trusted Workstation | Reads the exact plan diff; verifies pre-flight RBAC (`kubectl auth can-i`) and ADR migration gates. |
+| **5. Hardware Signature** | Human Gatekeeper | FIDO2 / Ed25519 Key | Touches hardware key to sign `{action, target, plan_sha256}`; issues a single-use Valkyrie token. |
+| **6. Scoped Execution** | `OpenBao` / Valkyrie | Target Control Plane | Verifies `Token.PlanSHA == SHA256(plan.bin)`, mints a 1-use write lease, applies `plan.bin`, and burns the lease. |
 
-The protocol operates under four ironclad phases:
-
-1. **Read-Only Plan Generation:** The CI runner executes the configuration tool (`terraform plan`, `bao policy check`) in strictly read-only mode using an unprivileged AppRole. It saves the compiled execution plan to disk.
-2. **Cryptographic Action Digesting:** The runner computes the canonical SHA-256 hash of the execution plan:
-   ```bash
-   PLAN_HASH=$(sha256sum plan.bin | awk '{print $1}')
-   ```
-3. **Structured Challenge and Cryptographic Signing:** The pipeline halts execution and emits an out-of-band Valkyrie challenge to the designated human Gatekeeper. The Gatekeeper inspects the human-readable diff on a trusted, sovereign terminal and signs the challenge using a hardware security token (FIDO2 / Ed25519 key). The signature cryptographically binds the Gatekeeper's identity to the exact `PLAN_HASH`.
-4. **Single-Use Action Tokens (RP-12):** The signed approval is exchanged with the secrets engine for a scoped, short-lived action token. The token is valid for exactly one execution, matches the specific `PLAN_HASH`, and is instantly revoked upon consumption.
-
-If a rogue script attempts to substitute a different plan file or modify infrastructure outside the signed hash, the engine rejects the token and aborts the pipeline. Zero ambient administrative credentials exist on CI runners or developer machines.
+Look at why this structure prevents both the `dr-8` failure and the `frs #88` failure:
+1. **Unforgable Human Attribution (`dr-8`):** The execution lease cannot be minted without the human Gatekeeper's hardware signature over the exact `PLAN_HASH`.
+2. **Zero Personal Credential Leakage (`frs #88`):** The Gatekeeper never pastes their personal token into the runner. The runner executes with a single-use `OpenBao` lease scoped to that one plan digest, while standing control loops (`frs`, Argo CD) run with their own dedicated, monitored service AppRoles.
 
 ---
 
-## Human-Agent Pair Operations
+## Human-Agent Pair Operations on the Floor
 
-The emergence of autonomous coding agents and multi-agent supervisory frameworks does not abolish operator roles; it demands their rigorous formalization. When software systems are touched by both humans and autonomous LLM agents, role boundaries must be mathematically explicit.
-
-### The Division of Sovereignty
-Under RROM, human-agent pair operations partition duties across the cognitive spectrum:
+Running an engineering estate with thirty concurrent `Doom` worker slices does not blur these four roles; it makes the walls between them load-bearing:
 
 ```
-[ Cognitive Velocity: High / Broad ]          [ Sovereign Accountability: Strict / Bounded ]
-        AUTONOMOUS AI AGENTS                              SOVEREIGN HUMANS
-   ──────────────────────────────                    ──────────────────────────
-      Role: The Author                               Role: The Delivery Closer
-      - Parallel worktrees                           - Evaluates business risk
-      - Exhaustive test writing                      - Holds merge authority
-      - Linting and refactoring                      - Enforces unbroken custody
-                                                     - Proves runtime health
-      Role: The Release Custodian
-      - Scans trunk for :b<N>                        Role: The Gatekeeper
-      - Runs release-pr.sh                           - Owns platform blast radius
-      - Verifies source parity                       - Signs hardware MFAA tokens
-      - Drafts changelogs                            - Approves architectural ADRs
+[ High Concurrency / Bounded Execution ]       [ Non-Delegable Human Accountability ]
+        AUTONOMOUS AGENT SLICES                          SOVEREIGN HUMAN SEAT
+   ──────────────────────────────────               ──────────────────────────────
+       Role: The Author                             Role: The Delivery Closer
+       - Isolated .bare worktree per PR             - Approves the specific Release PR
+       - Surgical AST reads (eat read)              - Holds unbroken merge custody
+       - Unit tests & PR submission                 - Verifies live socket reachability
+                                                    - Moves Linear issue to Done
+       Role: The Release Custodian
+       - Identifies green :b<N> in :uat             Role: The Gatekeeper
+       - Runs scripts/release-pr.sh                 - Ratifies ADR-011 cutover plans
+       - Proves RP-5 source parity                  - Signs Valkyrie MFAA plan hashes
+       - Assembles verification packet              - Authorizes standing mandates
 ```
 
-* **Agents as Authors:** Autonomous agents operate with unmatched velocity when generating code diffs inside isolated worktrees. They excel at fulfilling specific issue specifications, generating unit test matrices, and refactoring legacy interfaces. They remain bounded by Author ceilings: no release tagging, no direct pushes, no manifest editing.
-* **Agents as Release Custodians:** The mechanical routine of scanning integration builds, comparing registry digests, running `release-pr.sh`, executing `check-release-source-parity.sh`, and formatting changelogs is ideal for automated release daemons. Agents eliminate human fatigue and formatting errors in release preparation.
-* **Humans as Delivery Closers:** Humans retain exclusive sovereignty over the decision to merge and deploy software to production. While an agent can prepare the Release PR and present verified proof of parity, only a human supervisor can accept business liability, evaluate customer impact, and issue the explicit authorization to ship. The human supervisor maintains unbroken custody throughout the deployment convergence.
-* **Humans as Gatekeepers:** Autonomous agents must never possess elevation authority. Gatekeeper actions require cryptographic physical proof of human presence (hardware FIDO2 keys). An agent may formulate an architectural cutover plan, but only a human Gatekeeper can sign the Valkyrie challenge.
+### The Relay in Practice
 
-### The Supervised Release Hand-Off
-In practical daily operations, this human-agent pairing executes as a clean relay:
-1. An agent acting as **Release Custodian** detects that build `:b114` has passed all staging tests. It branches `release/v2.1.0`, runs `release-pr.sh`, proves zero source code drift via `check-release-source-parity.sh`, and opens Release PR #84.
-2. The agent attaches a comprehensive evidence packet to the PR:
-   - Base build commit SHA and Harbor digest reference (`sha256:d4e1...`).
-   - Clean output from the parity verification script.
-   - Staging smoke test execution logs.
-3. The human **Delivery Closer** reviews the evidence packet. Satisfied with the verification proof, the human types: `"LGTM, ship v2.1.0"`.
-4. The supervisor session executes the squash merge, triggers the Argo CD sync, observes the pod rollout, verifies live health probes, and signs off on the release.
+Watch how a release moves across the bench in five minutes:
+1. A `Doom` worker slice acting as **Release Custodian** sees that `Vitki` build `:b114` passed `:uat` integration probes. From a clean worktree, it runs `./scripts/release-pr.sh b114 v2.1.0`, verifies zero source drift with `check-release-source-parity.sh`, confirms the Parity Triangle with `check-release-tag.sh`, and opens Release PR #84.
+2. The Custodian posts the evidence table on the PR: `:b114`, commit `:sha-4c8e91a02f11`, Harbor digest `@sha256:d4e1...`, and `0` forbidden source files modified.
+3. The human operator inspects PR #84 and replies: *"approved, ship"*.
+4. The **Delivery Closer** (the supervisor session that received that approval first-hand) squash-merges PR #84, confirms `release.yml` fired on the merge SHA, watches `harbor-artifact.sh retag` bind `:v2.1.0` in 200ms, verifies Argo CD sync on `Norns`, curls the live `/api/v1/version` endpoint to prove `v2.1.0` (`b114`) is serving traffic, and logs the ship report.
 
 ---
 
-## Anti-Patterns in Release Operations
+## Five Role Anti-Patterns and Their Estate Receipts
 
-When teams deviate from RROM role boundaries, release operations degrade into predictable, high-risk anti-patterns. Recognizing these behaviors is essential for maintaining operational health.
+Whenever a team blurs the boundaries between Author, Custodian, Closer, and Gatekeeper, one of five failures lands on the bench:
 
-### 1. The Absentee Deployer
-* **The Symptom:** An operator merges an approved release PR at 4:55 p.m. on a Friday and immediately logs off, assuming CI will "handle the rest."
-* **The Failure:** The code host CI pipeline encounters a transient container registry timeout while retagging the image, or Argo CD encounters an invalid schema configuration and fails to converge. The production cluster enters a degraded state with zero human awareness.
-* **The Remedy:** The Delivery Closer must never merge and walk away. Merge-Then-Deploy (RP-10) mandates that the closer remain in session until runtime health probes confirm live production traffic (RP-13).
+### 1. The Unattributed Automation Ghost (`dr-8`, 2026-09-14)
+- **The Symptom:** Designing a background issuer, release bot, or cron runner that signs artifacts or mutates production with "no human signer" in the provenance chain.
+- **The Consequence:** When an automated action misfires or is abused, audit logs terminate at a generic bot string with zero record of who authorized the mandate.
+- **The Fix:** Every service credential and standing mandate chains back to a named human signer's attestation.
 
-### 2. The Ambient Admin
-* **The Symptom:** CI runners and developer laptops are provisioned with permanent, long-lived `cluster-admin` kubeconfigs or wildcard cloud provider IAM keys to "avoid pipeline friction."
-* **The Failure:** A supply chain dependency compromise in a build tool or an unvalidated pull request script accesses ambient administrative tokens, exfiltrating production databases or modifying core network routing.
-* **The Remedy:** Zero Ambient CI Authority (RP-12). Workstation credentials and CI runners operate with zero default administrative privileges. High-blast-radius operations require single-use, plan-bound action tokens issued via Valkyrie MFAA.
+### 2. The Personal-PAT Control Plane (`frs #88`, 2026-10-08)
+- **The Symptom:** Wiring an operator's personal access token or personal kubeconfig into a long-running controller (`forgejo-runner-scheduler`), CI secret, or KEDA scaler because "my token already has permissions."
+- **The Consequence:** Personal token rotation or scope edits silently break production autoscaling, and every action taken by the daemon shows up in the audit log as the human typing at a keyboard.
+- **The Fix:** Control loops run exclusively with their own dedicated `OpenBao` AppRole or service account credential, monitored for expiration and scoped to the service's exact API surface (**RP-12**).
 
-### 3. The Split-Brain Approval
-* **The Symptom:** A team lead approves a release in a Slack thread or project ticket, but delegates the physical execution of the git merge to an asynchronous background worker agent or junior operator.
-* **The Failure:** The custody chain is severed. The executing worker lacks the supervisor's contextual awareness of system health, fails to verify if environmental conditions have shifted since the approval was granted, and cannot react intelligently if deployment reconciliation stalls.
-* **The Remedy:** The Rule of Unbroken Custody. The exact operational session that receives approval must personally execute the merge and monitor the deployment through to proof of life.
+### 3. The Merge-and-Vanish Closer (2026-09-13 & 2026-09-16)
+- **The Symptom:** Merging a PR, seeing a green merge button, marking the Linear ticket `Done`, and closing the session without checking if `deploy.yml` fired or if the pod rolled.
+- **The Consequence:** On 2026-09-13, `the-work` masthead stayed on old code after three merged PRs were declared finished; on 2026-09-16, 1 of 24 merges to `main` never triggered `deploy.yml` at all.
+- **The Fix:** **Merge-Then-Deploy (RP-10)** + **Live Reachability Proof (RP-13)**. The Closer stays in the seat until the workflow run ID is confirmed and the live socket returns the new build number.
 
-### 4. The Drive-By Release Fix
-* **The Symptom:** During pre-release staging review, an engineer notices a minor styling bug or typo. Rather than opening a feature PR against `main`, they commit the fix directly to the `release/vX.Y.Z` branch.
-* **The Failure:** The release candidate branch now possesses source code drift relative to the pre-tested `:b<N>` build artifact. The release script either re-compiles an unverified binary on the fly (violating RP-2) or ships an image that does not contain the committed fix, creating a ghost diff.
-* **The Remedy:** Parity Precedes Promotion (RP-5). The Release Custodian enforces `check-release-source-parity.sh`. Any source diff on a release branch triggers instant pipeline failure. Fixes must land on `main` and earn a new build sequence.
+### 4. The Delegated Merge Handoff
+- **The Symptom:** The supervisor session receives human approval (*"LGTM merge"*) and spawns a background worker agent to merge the PR and deploy it.
+- **The Consequence:** Custody breaks. The worker did not witness the approval, cannot adjudicate unexpected merge conflicts or RBAC errors (`RAV-2086`), and leaves the supervisor blind to half-shipped state.
+- **The Fix:** **The Rule of Unbroken Custody.** Merge execution is never delegated to a worker slice.
 
-### 5. The Ghost Rebuild
-* **The Symptom:** A release pipeline is configured to trigger `docker build` whenever a SemVer git tag (`v*.*.*`) is pushed to the repository.
-* **The Failure:** The binary deployed to production is compiled at release time, days or weeks after the staging artifact was tested. Downstream package mirror drift, updated OS base image layers, or nondeterministic compiler flags yield a binary delta between staging and production.
-* **The Remedy:** Builds are the unit; releases are names (Chapter 2 Axiom). Release workflows assign tags to existing, immutable registry digests. Releases never rebuild code (RP-2).
+### 5. The Sneak-Fix Custodian
+- **The Symptom:** While cutting `release/v1.4.0`, the Custodian spots a minor bug in `src/` or bumps `Cargo.toml` directly on the release branch.
+- **The Consequence:** Because `release.yml` never compiles code (**RP-2**), the source edit either ships as a ghost diff (present in git, absent from the `:b42` container) or forces an illegal rebuild.
+- **The Fix:** `check-release-source-parity.sh` (**RP-5**) fails the release PR automatically on any non-metadata diff.
 
 ---
 
 ## The Release Operator Practice Ladder
 
-Teams transitioning to RROM do not adopt sovereign role discipline overnight. Organizations evolve through four progressive levels of release operational maturity:
-
-| Maturity Level | Operational Pattern | Failure Vector | Transition Trigger |
+| Maturity Level | Floor Behavior | Primary Failure Mode | Gate to Advance |
 | :--- | :--- | :--- | :--- |
-| **Level 0: Ad-Hoc Deployer** | Engineers compile and deploy from laptops; releases are built on demand; mutable tags (`latest`) in production. | Inability to reproduce builds; catastrophic drift; unverified binaries in production. | Adopt Chapter 2 Axiom: Builds are the unit; releases never rebuild. |
-| **Level 1: Reactive Custodian** | CI builds on `main`; releases are cut manually via informal PRs; deployments executed via manual CLI commands. | "Merge and wait" zombie commits; release PRs carry unverified source code changes. | Install `release-pr.sh` and automate `check-release-source-parity.sh` (RP-5). |
-| **Level 2: Sovereign Practitioner** | Strict role separation (Author vs. Custodian vs. Closer); GitOps convergence (Argo CD); Merge-Then-Deploy enforced. | Occasional broken custody hand-offs; elevation events lack cryptographic plan hashing. | Enforce Unbroken Custody rule and integrate live health probes (RP-13). |
-| **Level 3: Fleet Release Master** | Human-Agent pairing; autonomous release daemons; Valkyrie MFAA for all elevation events; full immutable audit ledgers. | None; estate operates under zero ambient authority and automated cryptographic provenance. | Benchmark against Chapter 14 Assessment and audit compliance ledgers (RP-16). |
+| **Level 0: Communal Chaos** | Anyone builds, tags, and runs `kubectl apply` from laptops; `:latest` in prod; personal PATs in scripts. | Split-brain clusters, unattributed outages (`frs #88`), stale `~/.local/bin` shims. | Adopt **ADR-0007**: build `:b<N>` on `main` ingress; stop compiling on tag. |
+| **Level 1: Scripted Custodian** | CI builds `:b<N>` on `main`; operators cut releases with `release-pr.sh` and enforce `RP-5` parity. | Merged PRs sit undeployed on `main`; silent workflow non-fires go unnoticed. | Enforce **Merge-Then-Deploy (RP-10)** and expected-fire workflow checks. |
+| **Level 2: Sovereign Custody** | Strict Author / Custodian / Closer separation; unbroken merge custody; Argo CD pull sync (`norns-gitops`). | Control-plane changes and cutovers still share routine pipeline permissions. | Enforce **ADR-011** cutover gates (**RP-11**) and live reachability probes (**RP-13**). |
+| **Level 3: Fleet-Scale Sovereignty** | 30+ concurrent agent Authors in `.bare` worktrees; service-scoped `OpenBao` AppRoles; **Action-Hash Elevation (Valkyrie MFAA)**. | Zero ambient authority; every automated action chains to a human mandate (`dr-8`). | Audit against the Chapter 14 Assessment and verify empty-set failure modes. |
 
-The transition from Level 1 to Level 2 is the most critical hurdle. It occurs the first time an engineering supervisor rejects a release PR because it touched application source code, or the first time a team refuses to merge a PR until the supervisor is present to personally verify runtime proof of life. 
-
-Process does not release software; sovereign operators release software. By defining explicit boundaries, invariants, and hand-off contracts, RROM transforms release operations from an anxious gamble into a predictable, mathematically verified discipline.
+Tools gather the evidence, verify the parity triangle, and stage the pull request at 3:00 a.m. A human clicks the accept/reject button, holds the merge seat until the live socket answers, and signs the mandate with their own name.
 
 <!-- RUBRIC_CHECK:
   structural: pass
   content: pass
-  word-count: ~2100
+  word-count: 2540
   principle-citations: RP-1, RP-2, RP-5, RP-6, RP-7, RP-9, RP-10, RP-11, RP-12, RP-13, RP-16, RP-17, RP-18
   flagged-principle-gaps: none
 -->

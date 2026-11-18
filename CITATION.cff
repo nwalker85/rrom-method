@@ -6,7 +6,7 @@ authors:
     orcid: "https://orcid.org/0009-0004-9494-8141"
     affiliation: "Ravenhelm LLC"
     website: "https://nwalker.cc"
-title: "Ravenhelm Release Operations Methodology (RROM): A Tiered, Sovereign Operating Methodology for Software Release, Artifact Custody, and Multi-Surface Deployment"
+title: "Ravenhelm Release Operations Methodology (RROM): Book III of the Ravenhelm Operations Methodology - A Tiered, Sovereign Operating Methodology for Software Release, Artifact Custody, and Multi-Surface Deployment"
 version: "1.0.0"
 date-released: 2026-11-04
 license: "LicenseRef-RROM-Community-1.0"
@@ -22,4 +22,5 @@ keywords:
   - "multi-surface deployment"
   - "Ravenhelm"
   - "RLOM"
+  - "RDOM"
   - "RROM"

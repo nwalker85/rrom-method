@@ -1,525 +1,303 @@
 # Chapter 10: Hotfixes, Emergencies & Rollback
 
-<!-- LICENSE: RROM Community License 1.0 (c) 2026 Ravenhelm LLC -->
+<!-- LICENSE: © 2026 Ravenhelm LLC. Licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Attribution required: "Ravenhelm LLC — Ravenhelm Release Operations Methodology (RROM), https://ravenhelm.dev". -->
 
-## The High-Stress Crucible: When Production Burns
+## When the Runtime Lies Under Fire
 
-It is 02:14 UTC on a Sunday morning. A high-priority P0 page wakes the on-call platform engineer: error rates across the public API gateway have surged to 48%, p99 latency has spiked from 18 milliseconds to 14 seconds, and customer database connection pools are exhausting worker threads across the cluster. Ten minutes earlier, a new release—version `v1.4.2`—was marked as converged in production.
+Between August 30 and September 27, 2026, the alerting pipeline on `vakr` tried to deliver **287,879** Alertmanager webhooks. Exactly **287,838** of them failed with `connection refused` while **68 real production alerts** fired into the void (`alert-path-dead-four-weeks-stale-bind-mount`). Anyone who inspected `/etc/alertmanager/alertmanager.yml` on the host saw the right configuration: the receiver URL had been updated weeks earlier to the Traefik HTTPS endpoint and Alertmanager had been sent a reload signal. Why was it still hammering the dead `http://10.10.20.10:18000` socket? Because `alertmanager.yml` was mounted into the container as a Docker **single-file bind mount**. When an editor or deployment script writes a file atomically (`rename()` over the old path), the file on the host gets a new inode; a Linux single-file bind mount inside a running container stays pinned to the **old, unlinked inode** (`docker-single-file-bind-mount-goes-stale-on-replace`). Every `SIGHUP` reload inside the container happily re-read the stale file from four weeks ago until a full `docker compose restart alertmanager` rebound the mount.
 
-In conventional engineering organizations, this is the exact moment when process disintegrates into chaos. Panic sets in. Adrenaline drives cognitive tunnel vision. Engineers open multiple terminal windows across uncoordinated workstations, attempting to "fix forward" by authoring emergency hotfixes directly on dirty feature branches, bypassing test suites, manually triggering unversioned container builds from local Docker daemons, or executing ad-hoc database patches through SSH bastion hosts. Someone runs `docker push` with a `:latest` or `:hotfix` tag; someone else attempts to `git revert` on the trunk, triggering a 25-minute CI compilation cycle while the database crashes under unindexed lock contention. In the fog of war, an engineer deletes the failing container tag from the remote registry, hoping to stop nodes from pulling it, only to break cluster scheduling and obliterate the forensic evidence required to determine what went wrong.
+Right beside that four-week blindfold sit four more container-runtime traps we paid for in live incidents across `odin`, `hrafngud`, `vakr`, and `Norns`:
 
-The Ravenhelm Release Operations Methodology (RROM) is explicitly engineered to eradicate this operational breakdown. 
+1. **`docker compose restart` Ignores New Volumes (`compose-restart-does-not-pick-up-new-volumes`):** Adding a volume or bind mount to `docker-compose.yml` and running `docker compose restart <svc>` reuses the existing container spec without attaching the new mount. Only `docker compose up -d <svc>` recreates the container with the updated volume table.
+2. **`env_file` Eats Unescaped Dollar Signs (`compose-env-file-eats-dollar-signs`):** Putting a bcrypt hash or secret containing `$2b$12$...` inside a Docker Compose `env_file` without escaping `$$` causes Compose to interpolate `$2b` and `$12` as empty variables, silently corrupting credentials on startup.
+3. **`docker kill -s HUP` Disables `unless-stopped` (`docker-kill-signal-sets-manually-stopped`):** Sending `docker kill -s HUP <container>` to reload a daemon marks the container as "manually stopped" inside the Docker daemon state machine; if the process later exits or the host reboots, `restart: unless-stopped` will **not** bring it back up. Use `docker exec <container> kill -HUP 1` instead.
+4. **The Missing Flannel `subnet.env` on `skuld` (`norns-skuld-flannel-subnet-env-breaks-every-new-pod`):** During a rollout on the 3-node `Norns` K3s cluster (`urd`, `verdandi`, `skuld`), every new pod scheduled onto node `skuld` stuck in `ContainerCreating` with `FailedCreatePodSandBox: open /run/flannel/subnet.env: no such file or directory`. The container image was fine; the CNI state file in volatile `/run/flannel` on `skuld` had vanished and had to be restored before any pod could bind a network namespace on that node.
 
-Under RROM, **an emergency is never an excuse to invent novelty**. The worst time to invent a recovery procedure is during an active production outage. Incident response must be a frictionless, deterministic, mechanical execution of the exact same state transitions that govern daily software delivery—only accelerated.
+When production burns at 2:00 AM, conventional teams panic. They edit files over SSH, run `docker build` from dirty laptop checkouts, push `:hotfix` tags, or delete broken images from the registry. Under the Ravenhelm Release Operations Methodology (RROM), **an emergency is never license to invent a new ship path**. You verify the live runtime substrate first, restore service in under 30 seconds by repointing the immutable Harbor digest in `norns-gitops`, and land the forward fix through an isolated git worktree using the exact same five-state release machine that governs Tuesday afternoon.
 
 ---
 
 ## The Rollback Axiom
 
-At the foundation of RROM emergency management lies a core operational principle:
+At the foundation of RROM emergency response sits **Principle RP-14 (Fail-Closed Rollback)**:
 
-> ### **Rollback is pointer repointing; it is never binary deletion.**
-> *A failed build is never purged, deleted, or recompiled; it simply loses its authorized release name in the declarative orchestrator. Rollback is the instantaneous, atomic repointing of the environment configuration pointer to the preceding, cryptographically proven build digest.*
+> ### **Rollback is pointer repointing; it is never binary deletion or source recompilation.**
 >
-> **Rollback does not compile code. Rollback does not rebuild containers. Rollback does not delete artifacts.**
+> *A failed build is never purged from Harbor or rebuilt from a reverted git tag; it simply loses its active pointer in `norns-gitops`. Rollback is the atomic repointing of the declarative environment manifest to the preceding, pre-cached `@sha256:` build digest.*
+>
+> **Rollback does not compile code. Rollback does not rebuild containers. Rollback does not delete forensic evidence.**
 
 | State | Release Version | Pinned Target & Storage Invariant |
 | :--- | :--- | :--- |
-| **Broken Release** | `v1.4.2` | Pointed to digest `@sha256:7f9a...3c` (`:b42`). Pods crashing in production. |
-| **Restored Release** | `v1.4.1` | Repoints GitOps pointer to proven digest `@sha256:4a8b...1f` (`:b41`). |
-| **Harbor Registry** | Physical Storage | Both digests remain immutable in Harbor; `@sha256:4a8b...1f` is pre-cached on node disks. |
+| **Broken Release** | `v1.4.2` | Pointed to digest `@sha256:7f9a...3c` (`:b42`). Pods failing in production. |
+| **Restored Release** | `v1.4.1` | Repoints `norns-gitops` manifest to proven digest `@sha256:4a8b...1f` (`:b41`). |
+| **Harbor Registry** | Physical Storage | Both digests remain immutable in Harbor; `@sha256:4a8b...1f` layers are already cached on `urd`, `verdandi`, and `skuld`. |
 
-### Deconstructing the Mathematics of Immutability
+### Why Pointer Repointing Beats `git revert` Rebuilds
 
-Traditional deployment models view rollback as a destructive undo operation—an attempt to rewind time by tearing down infrastructure or overwriting version tags in place. This view violates basic information theory. In a deterministic release architecture:
+In a naive tag-rebuild pipeline, rolling back means reverting a commit on `main`, pushing a new tag, and waiting 18 minutes while a CI runner recompiles the old source code. If npm, crates.io, or an upstream apt mirror is down during the outage, your rollback fails to compile.
 
-1. **State is Cumulative:** The sequence of code changes that led to build `b42` occurred. Trying to erase history in git or registries creates untracked drift between recorded history and physical artifacts.
-2. **Artifacts are Eternal:** Build `b42` was compiled once on merge to `main`. It was assigned an immutable SHA-256 digest (`sha256:7f9a...3c`). That digest represents a static mathematical snapshot of compiled bits. It cannot be altered; it can only be dereferenced.
-3. **Environments are Pure Projections of State:** In declarative GitOps (e.g., Argo CD managing a Norns K3s cluster), runtime cluster state is a pure projection of the version control declaration:
-   $$\text{State}_{\text{runtime}} = \mathcal{R}(\text{Manifests}(\text{targetRevision}))$$
-   To alter $\text{State}_{\text{runtime}}$, one does not mutate running pods via `kubectl edit` or SSH. One simply adjusts the function input: repointing $\text{targetRevision}$ from `v1.4.2` to `v1.4.1`.
+Under RROM's **Release Doctrine (ADR 0007)**:
+1. **Artifacts Are Eternal:** Build `:b41` (`v1.4.1`, `sha256:4a8b...1f`) was compiled once on ingress and sits untouched in Harbor.
+2. **Node Layer Caches Are Pre-Warmed:** Because `v1.4.1` was running on `Norns` ten minutes ago, its unpacked OCI filesystem layers are already sitting on local NVMe disk inside `/var/lib/rancher/k3s/agent/containerd/` across `urd`, `verdandi`, and `skuld`.
+3. **Zero-Byte Pull Time:** When `norns-gitops` reverts the pointer from `v1.4.2` (`sha256:7f9a...3c`) back to `v1.4.1` (`sha256:4a8b...1f`), `containerd` matches the SHA-256 digest in its local content store, downloads **0 bytes** over the network, and swaps the pod sandboxes in seconds.
 
 ---
 
-## 1. Zero-Downtime Rollback Execution: The 60-Second Runbook
-
-Because RROM strictly mandates that all deployable artifacts are rendered by immutable cryptographic digest (`repository@sha256:...`) within the central GitOps repository (`norns-gitops`), rolling back a failed production release requires zero recompilation, zero git rebasing, and zero artifact transfer over external wide-area networks.
-
-### The Physics of the 60-Second Boundary: Pre-Cached Node Layers
-
-Why does an RROM rollback execute in under 60 seconds, whereas traditional rollbacks routinely take 15 to 30 minutes?
-
-The bottleneck in container orchestration during an incident is almost always **image pull latency** and **external registry dependencies**. When a deployment fails and an engineer points the cluster to an uncompiled or newly tagged image:
-- The orchestrator must contact an external container registry over WAN.
-- If the registry is rate-limited, degraded, or network-congested, pod scheduling hangs in `ImagePullBackOff`.
-- Worker nodes must sequentially download multi-gigabyte layer archives, unpack them onto disk, and mount root filesystems before the entrypoint process can even start.
-
-Under RROM's **Release Doctrine (ADR 0007)**, every production release is pinned to an immutable digest (`sha256:4a8b...`) that was already running in production 30 minutes prior. 
-
-Because container engines (containerd / CRI-O) cache unpacked filesystem layers locally on each node under `/var/lib/containerd/io.containerd.content.v1.content/`, reverting the GitOps pointer to the previous digest requires **zero layer downloads**. The CRI runtime detects that the required SHA-256 digest layers are already present on local disk. 
-
-The image pull operation completes in **0.00 seconds**. The orchestration layer immediately performs an in-memory pod swap, terminating the defective containers and spinning up the pre-warmed healthy containers with zero network I/O.
+## 1. Sub-30-Second Rollback Execution on `Norns`
 
 | Timeline | Event | Action & CRI Layer Response |
 | :--- | :--- | :--- |
-| **T+00s** | P0 Alert Confirmed | Error rate $> 40\%$ on release `v1.4.2`; on-call lead initiates pointer rollback. |
-| **T+10s** | Identify Target | Identifies previous stable release: `v1.4.1` (digest `sha256:4a8b...1f`). |
-| **T+22s** | Commit Repoint | Operator commits pointer repoint in `norns-gitops` repository. |
-| **T+28s** | Webhook Fast-Poll | Pushed to git host; Argo CD detects `targetRevision` change immediately. |
-| **T+35s** | Rollout Issued | Argo CD issues Kube-API patch; K3s controller initiates rolling replacement. |
-| **T+42s** | Local Node Cache | containerd finds `sha256:4a8b...1f` in local node cache (0 KB downloaded). |
-| **T+50s** | Pods Pass Readiness | Healthy pods pass readiness probes; traffic shifts via Service endpoints. |
-| **T+58s** | Runtime Proof | Automated runtime probe asserts HTTP 200 on `/api/health`; error rate normalizes. |
+| **T+00s** | P0 Alert Confirmed | Error rate spikes on `v1.4.2` (`:b42`); operator verifies node CNI health (`/run/flannel/subnet.env`) and initiates digest rollback. |
+| **T+06s** | Revert GitOps Commit | Operator runs `git revert HEAD` in a clean `norns-gitops` worktree, restoring `v1.4.1` (`sha256:4a8b...1f`). |
+| **T+12s** | Push & Hard Sync | Pushed to `norns-gitops`; `argocd app sync` triggers immediate reconciliation on `Norns`. |
+| **T+18s** | Local Cache Hit | `containerd` on `urd`, `verdandi`, and `skuld` binds `sha256:4a8b...1f` from local disk cache (0 KB pulled). |
+| **T+25s** | Readiness & Socket Proof | Replacement pods pass readiness probes; live daemon socket (`/api/health`) confirms `v1.4.1` and `b41`. |
 
-### Complete Terminal Walkthrough: The Live Rollback
+### Complete Terminal Walkthrough: The Live GitOps Rollback
 
-Below is the verbatim terminal sequence executed by the on-call Delivery Closer during a live P0 incident on the Ravenhelm estate.
+Never edit `norns-gitops` inside a dirty checkout, and never use `sed -i` (which breaks between macOS BSD `sed` and GNU `sed`). Use a dedicated worktree and `git revert` or `yq`:
 
-#### Step 1: Open Dedicated Worktree in the GitOps Repository
-Never edit `norns-gitops` directly on the local workstation's dirty default checkout. Use an ephemeral worktree:
+#### Step 1: Create an Isolated Worktree from `.bare`
 
 ```bash
-# Navigate to the bare repository directory and provision an emergency worktree
-cd ~/src/platforms/ravenmaskos/norns-gitops.bare
-git worktree add ../norns-gitops-rollback-v1.4.1 -b rollback/vitki-v1.4.1 origin/main
-cd ../norns-gitops-rollback-v1.4.1
+cd ~/src/platforms/ravenmaskos/norns-gitops/.bare
+git worktree add ../rollback-vitki-v1.4.1 -b rollback/vitki-v1.4.1 origin/main
+cd ../rollback-vitki-v1.4.1
 ```
 
-#### Step 2: Audit Prior Release State and Confirm Digest
-Inspect the git history to verify the exact tag and digest of the last verified stable release:
+#### Step 2: Inspect the Last Two Commits on the Application Manifest
+
+Confirm the exact commit that bumped `vitki` from `v1.4.1` (`b41`) to `v1.4.2` (`b42`):
 
 ```bash
-git log -n 5 --oneline clusters/norns/applications/vitki.yaml
-# Output:
-# 8f9b2a1 release: vitki bump to v1.4.2 (sha256:7f9a3c...)
-# 3d4e1c2 release: vitki bump to v1.4.1 (sha256:4a8b1f...)
+git log -n 3 --oneline clusters/norns/applications/vitki.yaml
+# 8f9b2a1 release: vitki bump to v1.4.2 (b42 @ sha256:7f9a3c...)
+# 3d4e1c2 release: vitki bump to v1.4.1 (b41 @ sha256:4a8b1f...)
 # a1b2c3d chore: update resource limits
 ```
 
-#### Step 3: Repoint the GitOps Manifest
-Edit the application manifest `clusters/norns/applications/vitki.yaml`. Modify the `targetRevision` from `v1.4.2` back to `v1.4.1`:
+#### Step 3: Revert the Promotion Commit Deterministically
+
+Revert `8f9b2a1` (or update `targetRevision` via `yq`) and inspect `git diff` to confirm only the pointer changed:
 
 ```bash
-# View the current broken declaration
-cat clusters/norns/applications/vitki.yaml
-```
-```yaml
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: vitki
-  namespace: argocd
-spec:
-  project: ravenmaskos
-  source:
-    repoURL: https://git.ravenhelm.dev/ravenmaskos/vitki.git
-    targetRevision: v1.4.2
-    path: chart
-    helm:
-      valueFiles:
-        - values.yaml
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: ravenmaskos
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
+git revert --no-edit 8f9b2a1
+git diff HEAD~1
 ```
 
-Execute the atomic repoint using your editor or standard tool:
-
-```bash
-# Repoint targetRevision to v1.4.1
-sed -i '' 's/targetRevision: v1.4.2/targetRevision: v1.4.1/' clusters/norns/applications/vitki.yaml
-
-# Assert the diff is strictly a single pointer change
-git diff
-```
 ```diff
 diff --git a/clusters/norns/applications/vitki.yaml b/clusters/norns/applications/vitki.yaml
 index e4b912a..a8f102c 100644
 --- a/clusters/norns/applications/vitki.yaml
 +++ b/clusters/norns/applications/vitki.yaml
 @@ -10,3 +10,3 @@ spec:
-     repoURL: https://git.ravenhelm.dev/ravenmaskos/vitki.git
+     repoURL: https://git.ravenhelm.dev/nate/vitki.git
 -    targetRevision: v1.4.2
 +    targetRevision: v1.4.1
      path: chart
 ```
 
-#### Step 4: Commit and Push to the GitOps Main Trunk
-Commit with an explicit emergency prefix citing the active incident identifier:
+#### Step 4: Merge to `norns-gitops` and Trigger Immediate Sync
+
+Once the rollback commit lands on `main` in `norns-gitops`, instruct Argo CD to sync immediately rather than waiting for the polling interval:
 
 ```bash
-git commit -am "emergency(vitki): rollback targetRevision from v1.4.2 to v1.4.1 [INCIDENT-9842]"
-git push origin rollback/vitki-v1.4.1:main
-```
-
-#### Step 5: Force Immediate GitOps Reconciliation
-Rather than waiting for the periodic 3-minute poll cycle, instruct Argo CD to reconcile immediately:
-
-```bash
-# Trigger an immediate hard sync against the updated git pointer
-argocd app sync vitki --prune --force
-
-# Stream the reconciliation status in real time
+argocd app sync vitki --prune
 argocd app wait vitki --health --timeout 60
 ```
+
 ```text
 TIMESTAMP                  GROUP        KIND   NAMESPACE              NAME    STATUS    HEALTH        HOOK  MESSAGE
-2026-11-04T02:16:32Z   apps/v1  Deployment ravenmaskos               vitki  OutOfSync  Degraded            deployment has 2 unavailable replicas
-2026-11-04T02:16:33Z   apps/v1  Deployment ravenmaskos               vitki    Synced   Progressing         updated deployment revision: 41
-2026-11-04T02:16:41Z            Pod        ravenmaskos   vitki-648f9-9xk2p    Synced   Running             containers ready
-2026-11-04T02:16:45Z            Pod        ravenmaskos   vitki-648f9-q8z1b    Synced   Running             containers ready
-2026-11-04T02:16:48Z   apps/v1  Deployment ravenmaskos               vitki    Synced   Healthy             deployment has 2 healthy replicas
+2026-11-04T02:16:12Z   apps/v1  Deployment ravenmaskos               vitki  OutOfSync  Degraded            deployment has 2 unavailable replicas
+2026-11-04T02:16:13Z   apps/v1  Deployment ravenmaskos               vitki    Synced   Progressing         updated deployment revision: 41
+2026-11-04T02:16:21Z            Pod        ravenmaskos   vitki-648f9-9xk2p    Synced   Running             containers ready
+2026-11-04T02:16:25Z            Pod        ravenmaskos   vitki-648f9-q8z1b    Synced   Running             containers ready
+2026-11-04T02:16:27Z   apps/v1  Deployment ravenmaskos               vitki    Synced   Healthy             deployment has 2 healthy replicas
 ```
 
-#### Step 6: Collect Live Runtime Proof
-Under RROM doctrine, **no rollback is complete until verified on the live running interface**. Confirm application health against the live HTTP ingress:
+#### Step 5: Verify on the Live Daemon Socket (RP-13)
+
+Confirm that the serving daemon endpoint reports `v1.4.1` and build `b41`:
 
 ```bash
-# Query the live ingress health endpoint
-curl -sS -i https://vitki.ravenmask.net/api/health
+curl -sS https://vitki.ravenhelm.dev/api/health | jq .
 ```
-```http
-HTTP/2 200 
-date: Sun, 04 Nov 2026 02:16:52 GMT
-content-type: application/json; charset=utf-8
-content-length: 124
-x-ravenhelm-version: v1.4.1
-x-ravenhelm-build: b41
-x-ravenhelm-digest: sha256:4a8b1f893e201b22e...
-
-{"status":"healthy","database":"connected","pool_available":48,"pool_in_use":2,"uptime_seconds":14}
-```
-
-Elapsed time from alert triage to live proof: **58 seconds**.
-
----
-
-## 2. The Accelerated Hotfix Protocol
-
-What happens when an incident cannot be resolved by a simple rollback? 
-
-Consider the following scenarios:
-1. **The Irreversible Migration:** Release `v1.4.2` included an expand migration that altered data structures, and rolling back to `v1.4.1` would cause schema incompatibility exceptions.
-2. **Upstream External Outage:** An external payment vendor or OAuth provider altered their TLS handshake or API signature unexpectedly, breaking both `v1.4.1` and `v1.4.2`.
-3. **Zero-Day Security Vulnerability:** An active exploit against a bundled dependency requires an immediate patch in production.
-
-In these conditions, engineering teams frequently fall into the **Cowboy Hotfix Trap**.
-
-### The "Cowboy Hotfix" Trap vs. RROM Accelerated Protocol
-
-| Operational Dimension | The "Cowboy Hotfix" Trap (Uncontrolled) | RROM Accelerated Hotfix Protocol |
-| :--- | :--- | :--- |
-| **Branching Strategy** | Pushes directly to `main` or untracked local branch. | Dedicated disposable worktree branched from verified `main`. |
-| **Compilation Origin** | Developer's workstation (`docker build . -t app:hotfix`). | Ephemeral CI ingress runner on identical base image. |
-| **Artifact Identity** | Mutable tag (`:hotfix`, `:v1.4.2-patch`). | Monotonic build ID (`:b43`) + immutable SHA-256 digest pin. |
-| **Regression Testing** | Skipped ("No time, production is down!"). | Fast-path automated unit and integration suite in CI. |
-| **Staging Validation** | Pushed straight to production with zero staging run. | Mandatory 2-minute synthetic validation in live UAT (`:uat`). |
-| **Source Parity Gate** | Unknown drift; accidental inclusion of unreviewed code. | Cryptographic verification via `check-release-source-parity.sh`. |
-| **Traceability** | Untracked binaries running in production. | Complete cryptographic provenance from commit to Harbor OCI digest. |
-| **Reversibility** | Impossible to rollback cleanly if hotfix is defective. | 60-second instantaneous pointer rollback to prior digest. |
-
-### The 5-Minute Ingress-to-Production State Machine
-
-Under RROM, an emergency hotfix never skips the canonical state machine:
-
-$$\text{Emergency Worktree} \longrightarrow \text{Hotfix PR} \longrightarrow \text{Trunk Ingress (:b43)} \longrightarrow \text{UAT Smoke Gate} \longrightarrow \text{Release PR (v1.4.3)} \longrightarrow \text{GitOps Sync}$$
-
-By keeping the release machinery standardized and highly automated, this entire sequence executes in **under five minutes**, ensuring that speed does not compromise safety.
-
-| Hotfix Phase | Target Window | Operator Action & Invariant Gate |
-| :--- | :--- | :--- |
-| **1. Author Surgical Patch** | T+01m15s | Dedicated worktree; fix defect with regression test; open Hotfix PR against `main`. |
-| **2. Trunk Ingress Build** | T+02m45s | Emergency merge; CI compiles `:b43` once; stores immutable digest in Harbor; deploys `:uat`. |
-| **3. UAT Smoke Gate** | T+03m30s | 120-second synthetic smoke assertion proves defect resolution and connection stability. |
-| **4. Release Custodian Gate** | T+04m15s | `release-pr.sh b43 v1.4.3`; `check-release-source-parity.sh` asserts zero code drift; Harbor retags. |
-| **5. Delivery Closer & Sync** | T+05m00s | Merges Release PR; Argo CD reconciles production cluster to digest; live runtime proof confirmed. |
-
-### Hotfix Execution Protocol: Step-by-Step
-
-#### 1. Author the Surgical Patch in a Dedicated Worktree
-Never write hotfix code in a cluttered local development branch. Check out a clean worktree from `origin/main`:
-
-```bash
-cd ~/src/platforms/ravenmaskos/vitki.bare
-git worktree add ../vitki-hotfix-p0 -b hotfix/conn-leak origin/main
-cd ../vitki-hotfix-p0
-
-# Apply the surgical fix and add an automated regression test
-$EDITOR src/pool/connection.go
-$EDITOR tests/regression/conn_leak_test.go
-
-# Verify locally
-go test -v -race ./...
-
-# Commit with semantic message citing incident
-git commit -am "fix(pool): ensure idle sockets release file descriptors on timeout [INCIDENT-9842]"
-git push origin hotfix/conn-leak
-```
-
-#### 2. Emergency PR Review & Ingress Merge
-Open the pull request on your code host (Forgejo or GitHub). In an active P0 incident, the PR requires one senior technical sign-off or designated Incident Commander approval:
-
-```bash
-gh pr create --title "fix(pool): release sockets on timeout [P0-HOTFIX]" \
-             --body "Resolves socket exhaustion leading to 502 gateway errors. Backed by regression test."
-```
-
-Upon merge to `main`, the CI ingress workflow (`.forgejo/workflows/ingress.yaml` or `.github/workflows/ingress.yaml`) executes immediately:
-- Compiles the application inside an ephemeral container.
-- Tags the OCI image as `harbor.ravenhelm.dev/ravenmaskos/vitki:b43`.
-- Automatically deploys `b43` to the live UAT environment (`https://vitki-uat.ravenmask.net`).
-
-#### 3. The 120-Second Synthetic UAT Assertion
-Before any hotfix touches production, it must prove itself on live network interfaces in UAT. A synthetic load script exercises the repaired codepath:
-
-```bash
-# Run synthetic verification against UAT
-vitki-smoke-test --target https://vitki-uat.ravenmask.net --concurrency 20 --duration 60s
-```
-If error rates remain 0% and socket descriptors stabilize, the candidate build (`b43`) is declared ready for production promotion.
-
-#### 4. Execute the Release PR (Zero-Rebuild Promotion)
-The Release Custodian executes the standardized release script, nominating build `b43` for release name `v1.4.3`:
-
-```bash
-# Execute standard release PR automation
-./scripts/release-pr.sh b43 v1.4.3
-```
-
-Behind the scenes, `scripts/release-pr.sh` executes the parity validator:
-
-```bash
-./scripts/check-release-source-parity.sh b43
-# Asserting parity between build b43 (commit 4f81c9a) and current workspace...
-# Checking diff in src/ ... OK (0 files modified)
-# Checking diff in go.mod / go.sum ... OK (0 files modified)
-# Checking metadata updates:
-#   - chart/Chart.yaml: version updated to 1.4.3
-#   - chart/values.yaml: image.digest pinned to sha256:881c74...
-# PARITY VERIFIED: Zero application source drift detected.
-```
-
-The script opens the Release PR. The Delivery Closer merges it, pushes the annotated git tag `v1.4.3`, and Harbor retags the existing digest of `b43` with `v1.4.3`. 
-
-**No compilation occurs.** The exact binary bits that passed UAT load testing are deployed to production via `norns-gitops`.
-
----
-
-## 3. The Doctrine of Bad Build Quarantine
-
-When a bad release causes an outage, an undisciplined engineer's first instinct is often to purge the broken artifact:
-```bash
-# DO NOT DO THIS. OPERATIONAL VIOLATION:
-docker rmi harbor.ravenhelm.dev/ravenmaskos/vitki:v1.4.2
-# DO NOT DO THIS. OPERATIONAL VIOLATION:
-curl -X DELETE https://harbor.ravenhelm.dev/api/v2.0/projects/ravenmaskos/repositories/vitki/artifacts/v1.4.2
-```
-
-Under RROM, **deleting failing artifacts from registries or git history is strictly forbidden**.
-
-### Why Deleting Broken Artifacts is Operational Sabotage
-
-1. **Destruction of Forensic Evidence:** A production failure is often subtle—a race condition under multi-core load, a memory leak triggered by specific packet boundaries, or a compiler optimization bug. If you delete build `b42`, engineers cannot perform post-incident memory profiling, inspect binary symbols, or reproduce the crash dump.
-2. **Registry Index and Cache Corruption:** Deleting tags or manifest lists while cluster nodes or intermediate proxies still hold references results in erratic `Manifest Unknown` or `Blob Unknown` errors that destabilize cluster scheduling.
-3. **Audit Trail Destruction:** Compliance frameworks (SOC 2, ISO 27001, FedRAMP) and internal doctrine require an unbroken cryptographic record of every bit sequence that ever ran in production. Purging an artifact leaves an unverifiable hole in your compliance ledger.
-
-### The Harbor Quarantine Protocol
-
-Instead of deleting broken builds, RROM enforces **quarantine and metadata invalidation**. The defective artifact remains physically intact in Harbor, but is locked down so that no production orchestrator can pull or execute it.
-
-| Quarantine Stage | Layer & Mechanism | Security & Operational Invariant |
-| :--- | :--- | :--- |
-| **1. Immutability Lock** | Harbor Storage | Digest `@sha256:7f9a...3c` retained; deletion prevented for forensic chain of custody. |
-| **2. Metadata Retagging** | Registry Manifest API | Adds `:quarantined-INCIDENT-9842`; unlinks moving `:uat` pointer immediately. |
-| **3. Admission Enforcement** | Kyverno / OPA Gatekeeper | Cluster policy rejects any pod spec citing quarantined digest with admission webhook error. |
-| **4. Forensic Sandbox** | Ephemeral Debug Pod | Mounts digest inside isolated namespace (no network ingress, mock DB) for gdb/eBPF analysis. |
-
-#### Step 1: Retag the Digest for Quarantine
-Using the Harbor REST API or CLI, attach an explicit quarantine tag to the immutable digest of build `b42` and record the incident reference:
-
-```bash
-# Tag the broken digest with the quarantine marker
-crane tag harbor.ravenhelm.dev/ravenmaskos/vitki@sha256:7f9a3c21e01b \
-          quarantined-INCIDENT-9842
-```
-
-#### Step 2: Apply Registry Pull-Block / Retention Lock
-Harbor project policies are configured to block pulling any artifact tagged with `quarantined-*` except by authorized forensic service accounts:
 
 ```json
 {
-  "project_name": "ravenmaskos",
-  "repository": "vitki",
-  "tag": "quarantined-INCIDENT-9842",
-  "immutable": true,
-  "pull_block": true,
-  "comment": "Quarantined by Delivery Closer due to socket pool exhaustion in INCIDENT-9842"
+  "status": "healthy",
+  "version": {
+    "release": "v1.4.1",
+    "build": "b41",
+    "digest": "sha256:4a8b1f893e201b22e..."
+  },
+  "database": "connected",
+  "pool_available": 48,
+  "uptime_seconds": 9
 }
 ```
 
-#### Step 3: Kubernetes Admission Controller Policy Block
-To guarantee defense-in-depth, add the defective digest to the cluster's Kyverno or OPA Gatekeeper blocklist. This ensures that even if an engineer accidentally opens a PR referencing `sha256:7f9a3c...`, the K3s API server rejects the pod creation request:
+Service is back in 27 seconds. Now you can diagnose the broken `:b42` build with the pager quiet.
 
-```yaml
-apiVersion: kyverno.io/v1
-kind: ClusterPolicy
-metadata:
-  name: block-quarantined-digests
-spec:
-  validationFailureAction: Enforce
-  rules:
-    - name: block-broken-vitki-b42
-      match:
-        resources:
-          kinds:
-            - Pod
-      validate:
-        message: "Image digest {{ request.object.spec.containers[0].image }} is QUARANTINED under INCIDENT-9842."
-        deny:
-          conditions:
-            any:
-              - key: "{{ request.object.spec.containers[].image }}"
-                operator: AnyIn
-                value:
-                  - "*@sha256:7f9a3c21e01b*"
-```
+---
 
-#### Step 4: Offline Forensic Inspection in a Sandbox
-Because the binary layers were preserved in Harbor, engineers can spin up a sandbox container in an isolated analysis namespace (`debug-sandbox`) with network egress disabled and a live kernel profiler attached:
+## 2. Host & Substrate Triage Rules (Before Blaming the Code)
+
+When pods fail to start on `Norns` or a Docker Compose service on `odin`, `hrafngud`, or `vakr` ignores a config change, run the five physical substrate checks before writing a single line of hotfix code:
+
+| Symptom on the Bench | Root Physical Mechanism | Diagnostic Proof & Fix |
+| :--- | :--- | :--- |
+| Every new pod on `skuld` fails `FailedCreatePodSandBox` | `/run/flannel/subnet.env` missing on node `skuld` after CNI restart or tmpfs clear | Check `ls -l /run/flannel/subnet.env` across `urd`, `verdandi`, `skuld`; restore Flannel subnet config and restart `k3s-agent`. |
+| Config file updated on host (`alertmanager.yml`), daemon reloaded, still using old URL (`287,838` failed webhooks) | Docker single-file bind mount pinned to the old replaced inode | Compare `stat -c %i <file>` on host vs. `docker exec <c> stat -c %i <path>`; mount the parent directory or run `docker compose restart <svc>`. |
+| New volume added to `docker-compose.yml`, ran `docker compose restart`, mount missing inside container | `docker compose restart` restarts the old container spec without re-reading volume mounts | Run `docker compose up -d <svc>` to recreate the container with the new mount table. |
+| Reloaded daemon via `docker kill -s HUP <c>`, later host reboot left service dead | `docker kill` sets Docker's internal `ManuallyStopped` flag, disabling `restart: unless-stopped` | Send signals *inside* the namespace (`docker exec <c> kill -HUP 1`), or follow `docker kill` with `docker start` / `docker compose up -d`. |
+| Password hash or secret with `$` fails auth inside Compose service | `env_file` interpolates `$VAR` and strips unescaped `$` characters | Escape every literal `$` as `$$` in Compose files, or inject secrets directly via `op run` / `OpenBao` file mounts. |
+
+Verify the live system first. State the evidence, then fix.
+
+---
+
+## 3. The Accelerated Hotfix Protocol (Rolling Forward Cleanly)
+
+When a rollback is impossible - because an external upstream API changed its contract or a zero-day CVE must be patched forward - you execute an **Accelerated Hotfix**.
+
+### The Cowboy Hotfix Trap vs. The RROM Accelerated Protocol
+
+| Operational Dimension | The Cowboy Hotfix Trap (Forbidden) | RROM Accelerated Hotfix Protocol |
+| :--- | :--- | :--- |
+| **Workspace Custody** | Edits directly on `main` or inside someone else's dirty checkout. | Dedicated disposable git worktree branched from `.bare` (`origin/main`). |
+| **Compilation Origin** | Operator laptop (`docker build -t app:hotfix .`). | Ephemeral CI ingress runner executing `.forgejo/workflows/build.yml`. |
+| **Artifact Identity** | Mutable `:hotfix` or overwritten `:v1.4.2` tag. | Next monotonic build `:b43` + immutable `@sha256:` digest. |
+| **Reachability Verification** | Skipped ("prod is down, ship it"). | Exercised against UAT (`:uat`) through the real caller entry point. |
+| **Source Parity Gate** | Bypassed; unreviewed files ride along. | Enforced by `scripts/check-release-source-parity.sh` on `release/v1.4.3`. |
+| **Reversibility** | Unknown binary in prod; no clean rollback target. | 30-second GitOps digest revert if `:b43` misbehaves. |
+
+### The 5-Minute Ingress-to-Production Hotfix Path
+
+An emergency hotfix walks the exact same state machine as any other release:
+
+$$\text{Hotfix Worktree} \longrightarrow \text{PR to \texttt{main}} \longrightarrow \text{Ingress Build (\texttt{:b43})} \longrightarrow \text{UAT Probe} \longrightarrow \text{\texttt{release-pr.sh b43 v1.4.3}} \longrightarrow \text{\texttt{norns-gitops} Sync}$$
+
+#### Step 1: Cut a Dedicated Hotfix Worktree from `.bare`
+
+Obey the Checkout Custody Standard: never `git stash` someone else's work-in-progress. Spawn a clean worktree from `.bare`:
 
 ```bash
-# Run the quarantined image in an isolated debugging namespace
-kubectl run vitki-forensic \
-  --namespace=sandbox-forensics \
-  --image=harbor.ravenhelm.dev/ravenmaskos/vitki@sha256:7f9a3c21e01b \
-  --restart=Never \
-  --overrides='{
-    "spec": {
-      "securityContext": { "capabilities": { "add": ["SYS_PTRACE"] } },
-      "containers": [{
-        "name": "vitki-forensic",
-        "image": "harbor.ravenhelm.dev/ravenmaskos/vitki@sha256:7f9a3c21e01b",
-        "command": ["/bin/sleep", "3600"]
-      }]
-    }
-  }'
+cd ~/src/platforms/ravenmaskos/vitki/.bare
+git worktree add ../hotfix-rav-9842 -b fix/rav-9842-conn-leak origin/main
+cd ../hotfix-rav-9842
 
-# Attach interactive debugger directly into the container filesystem
-kubectl exec -it -n sandbox-forensics vitki-forensic -- dlv attach 1
+# Apply the surgical fix and regression test using structured edits
+go test -v -race ./pkg/pool/...
+
+git commit -am "fix(pool): release idle socket descriptors on read timeout (RAV-9842)"
+git push -u origin fix/rav-9842-conn-leak
 ```
 
-Engineers can inspect unstripped symbols, evaluate goroutine traces, and determine the exact instruction pointer where the connection pool wedged, without any risk of production contamination.
+#### Step 2: Merge to `main` and Let Ingress Mint `:b43`
+
+Open the PR referencing `RAV-9842`, review the diff, and merge after explicit approval. `.forgejo/workflows/build.yml` compiles `:b43` once, pushes `harbor.ravenhelm.dev/platform/vitki:b43` (`@sha256:881c74...`), and updates `:uat`.
+
+#### Step 3: Prove Reachability on the UAT Daemon Socket
+
+Wait for Argo CD to sync `vitki-uat`, then hit the live UAT daemon endpoint to confirm `:b43` resolves the socket leak:
+
+```bash
+curl -sS https://vitki-uat.ravenhelm.dev/api/health | jq -r '.version.build'
+# b43
+```
+
+#### Step 4: Promote `:b43` to `v1.4.3` Without Recompiling
+
+Run `scripts/release-pr.sh b43 v1.4.3`:
+
+```bash
+./scripts/release-pr.sh b43 v1.4.3
+# resolving digest for b43... sha256:881c74...
+# Release tag checks passed for v1.4.3 -> build b43 @ sha256:881c74...
+```
+
+Merge the release PR, push tag `v1.4.3`, let `release.yml` retag `sha256:881c74...` as `:v1.4.3` in Harbor, and bump `norns-gitops` to `v1.4.3`. If the repository is dual-surface (`Ullr` or `Yager`), execute Rail B (`Formula/<tool>.rb` in `nate/homebrew-tools`) in the same cycle.
 
 ---
 
-## 4. Post-Rollback Triage & Incident Post-Mortem Template
+## 4. Bad Build Quarantine (Never Delete the Corpse)
 
-Once runtime health is restored, the immediate crisis is over, but the release cycle is incomplete. Under RROM doctrine, **an unanalyzed rollback is an unclosed loop**. 
+When build `:b42` (`v1.4.2`) causes an outage, the temptation is to delete it from Harbor:
 
-Within 24 hours of an emergency rollback or hotfix deployment, the incident response team must publish a standardized post-mortem to the central engineering documentation repository.
+```bash
+# FORBIDDEN: Destroys forensic evidence and breaks audit lineage
+curl -X DELETE https://harbor.ravenhelm.dev/api/v2.0/projects/platform/repositories/vitki/artifacts/sha256:7f9a3c...
+```
 
-Below is the official RROM Post-Rollback Triage & Incident Post-Mortem Template.
+Under RROM Principle **RP-14**, **broken builds are never deleted from Harbor**. Deleting `:b42` destroys the compiled binary symbols and layer filesystem needed to reproduce the crash offline, and leaves a hole in the monotonic `:b1..:bN` sequence.
+
+Instead, quarantine the defective digest:
+
+| Quarantine Stage | Layer & Mechanism | Security & Operational Invariant |
+| :--- | :--- | :--- |
+| **1. Immutability Retention** | Harbor Storage | Digest `@sha256:7f9a...3c` stays in Harbor; monotonic `:b42` history remains unbroken. |
+| **2. Quarantine Marker** | Harbor Artifact Tag API | Attaches `:quarantined-RAV-9842` to the digest so operators and scripts see the status immediately. |
+| **3. GitOps Dereference** | `norns-gitops` | Neither UAT (`:b43`) nor Prod (`v1.4.1` / `v1.4.3`) references `@sha256:7f9a...3c`. |
+| **4. Isolated Forensic Pod** | Sandbox Namespace | Runs `@sha256:7f9a...3c` in an isolated namespace with no prod DB credentials to inspect the binary. |
+
+```bash
+# Attach quarantine marker to the broken digest in Harbor without deleting the layers
+HU="robot$release" HP="$HARBOR_SECRET" \
+  ./scripts/harbor-artifact.sh retag sha256:7f9a3c21e01b38f87029c2ea55bd51ef350c33a2ec9b1d4f6a8c0e2b4d6f8a01 quarantined-RAV-9842
+```
+
+---
+
+## 5. Post-Incident Dossier & Verification Receipt
+
+An emergency rollback or hotfix is not closed when the alert clears. Before the Linear issue (`RAV-XXXX`) moves to `Done`, record the cryptographic receipt and ask the standing verification question: **what did our checker report when it could not answer?**
 
 ```markdown
-# Incident Post-Mortem: [INCIDENT-XXXX] - [Brief Title]
+# Incident Post-Mortem: [RAV-XXXX] - [Brief Title]
 
-## 1. Executive Summary & Impact Analysis
-- **Incident ID:** INCIDENT-XXXX
-- **Date / Time of Incident:** YYYY-MM-DD HH:MM UTC
-- **Duration of Outage:** XX minutes
-- **Customer Impact:** (e.g., 42,000 API requests failed with HTTP 502; payment processing degraded for 14 minutes)
-- **Author of Post-Mortem:** [Name / Role]
-- **Incident Commander:** [Name / Role]
-- **Delivery Closer:** [Name / Role]
+## 1. Crime Scene & Impact Receipt
+- **Linear Issue:** RAV-XXXX
+- **Window (UTC):** YYYY-MM-DD HH:MM to HH:MM UTC (XX minutes)
+- **Measured Impact:** Exact counts (e.g., 287,838 of 287,879 webhooks failed; 68 alerts dropped)
+- **Delivery Closer:** [Name]
 
----
+## 2. Cryptographic Artifact Ledger
 
-## 2. Cryptographic Artifact Dossier
-Every post-mortem must record the exact cryptographic identity of both the defective build and the restoring build.
-
-| Dimension | Defective Artifact (Failed Release) | Restoring Artifact (Rollback / Hotfix) |
+| Dimension | Defective Build | Restoring Build (Rollback or Hotfix) |
 | :--- | :--- | :--- |
-| **Release Name (Tag)** | `vX.Y.Z` | `vX.Y.(Z-1)` or `vX.Y.(Z+1)` |
-| **Monotonic Build ID** | `:bXX` | `:bYY` |
-| **Git Commit SHA** | `git commit sha (12-char)` | `git commit sha (12-char)` |
-| **OCI Image Digest** | `sha256:abc123...` | `sha256:def456...` |
-| **Harbor Quarantine Tag** | `:quarantined-INCIDENT-XXXX` | N/A (Active Production) |
-| **GitOps Reversal Commit** | `https://git.../norns-gitops/commit/...` | `https://git.../norns-gitops/commit/...` |
+| **Release Tag** | `v1.4.2` | `v1.4.1` (Rollback) / `v1.4.3` (Hotfix) |
+| **Monotonic Build ID** | `:b42` | `:b41` / `:b43` |
+| **Git Commit SHA** | `9f8a3c21e01b` | `3d4e1c20a91f` / `4f81c9a2b10e` |
+| **Harbor OCI Digest** | `sha256:7f9a3c...` | `sha256:4a8b1f...` / `sha256:881c74...` |
+| **Quarantine Tag** | `:quarantined-RAV-XXXX` | Active in `norns-gitops` |
+| **GitOps Commit** | `8f9b2a1` | `8c2d1e0` |
 
----
+## 3. Root Cause & The Blindfold Question
+1. **What failed physically?** (Cite exact file, inode, CNI path, or code line.)
+2. **Why did the gate or monitor report green while it was broken?** (What did the check print on an empty result set or stale inode?)
+3. **What structural lock now makes this failure mode impossible to repeat silently?**
 
-## 3. High-Resolution Incident Timeline (UTC)
-Provide an exact chronological log of events with second-level precision:
-
-- **02:10:00 UTC** - GitOps sync completed for release `v1.4.2` (`:b42`, digest `sha256:7f9a...`).
-- **02:14:15 UTC** - Alerting threshold triggered: API Gateway 5xx rate exceeded 5%. PagerDuty fires.
-- **02:15:02 UTC** - Incident Commander acknowledges page; determines issue began immediately post-deployment.
-- **02:15:30 UTC** - Decision made to execute immediate rollback to prior stable release `v1.4.1`.
-- **02:16:05 UTC** - Delivery Closer pushes emergency commit to `norns-gitops` repointing `targetRevision` to `v1.4.1`.
-- **02:16:32 UTC** - Argo CD triggers sync. Pre-cached layers on node eliminate download phase.
-- **02:16:48 UTC** - All replacement pods pass readiness probes. Traffic shifts back to `v1.4.1`.
-- **02:17:15 UTC** - Live health probes confirm 0% error rate on public gateway. Incident stabilized.
-- **02:22:00 UTC** - Defective digest `sha256:7f9a...` quarantined in Harbor; Kyverno admission rule applied.
-
----
-
-## 4. Root Cause Analysis: The 5 Whys
-Identify the fundamental technical breakdown that led to the incident:
-
-1. **Why did the API Gateway return HTTP 502?**  
-   Because all upstream application worker threads were hung waiting for an available database socket.
-2. **Why were database sockets exhausted?**  
-   Because the connection pool manager in `v1.4.2` failed to return sockets to the idle pool when client timeouts occurred.
-3. **Why did the connection pool fail to return sockets on timeout?**  
-   Because a newly introduced telemetry interceptor wrapped the socket connection in an unhandled error defer block that swallowed the `Close()` call.
-4. **Why was this error not detected in the unit or integration tests?**  
-   Because existing integration tests mocked the database pool using an in-memory client that did not simulate network-level TCP read timeouts.
-5. **Why did UAT smoke tests fail to catch the issue?**  
-   Because UAT synthetic traffic generated single-request queries with low latency, never crossing the 5-second socket timeout threshold required to trigger the leak.
-
----
-
-## 5. Release Verification & Parity Audit
-- **Did the release PR contain any unverified source drift?**  
-  [YES / NO] - `check-release-source-parity.sh` confirmed zero drift between `:b42` and `v1.4.2`.
-- **Was the build unit compiled more than once?**  
-  [YES / NO] - The exact binary tested in UAT was deployed to production.
-- **Did the rollback require any source code compilation?**  
-  [NO] - Rollback was executed purely as a GitOps pointer repoint.
-- **Did node layer caching function as designed?**  
-  [YES] - Node image pull latency was 0 seconds.
-
----
-
-## 6. Corrective Actions & Preventative Engineering
-Assign concrete, tracked work items with ownership and strict delivery deadlines:
-
-| Action Item | Classification | Owner | Linear Ticket | SLA Due Date |
-| :--- | :--- | :--- | :--- | :--- |
-| Add integration test simulating TCP socket read timeouts in pool | Automated Test | Lead Author | `RAV-10241` | T+48 Hours |
-| Enhance UAT synthetic smoke tests to inject chaos timeouts | Pipeline Gate | Release Custodian | `RAV-10242` | T+5 Days |
-| Implement Kyverno policy to reject unquarantined regression digests | Platform Sec | Delivery Closer | `RAV-10243` | T+24 Hours |
-| Publish forensic memory dump analysis from sandbox debug session | Documentation | Lead Author | `RAV-10244` | T+7 Days |
+## 4. Follow-Up Deliverables
+| Action Item | Repo | Linear Issue | Verification Proof |
+| :--- | :--- | :--- | :--- |
+| Replace single-file bind mount with directory mount | `odin` / `vakr` | `RAV-XXXX` | `stat -c %i` matches across host edit |
+| Add socket timeout regression test + caller probe | `nate/vitki` | `RAV-YYYY` | Proven on UAT daemon socket |
 ```
 
 ---
 
-## 5. Summary of Chapter 10 Invariants
-
-To maintain uncompromising reliability under emergency conditions, every engineering team operating under RROM must enforce the following non-negotiable invariants:
+## 6. Summary of Chapter 10 Invariants
 
 | Invariant ID | Rule Name | Operational Mandate |
 | :--- | :--- | :--- |
-| **RP-10.1** | **The Rollback Axiom** | Rollback is strictly pointer repointing in configuration; it is never source recompilation or binary deletion. |
-| **RP-10.2** | **Pre-Cached Node Immutability** | Production deployments MUST pin immutable SHA-256 digests. Never deploy mutable tags (`:latest`, `:v1`). Pre-cached node layers guarantee 60-second recovery. |
-| **RP-10.3** | **No Cowboy Hotfixes** | Emergency patches must follow the canonical state machine: Worktree $\to$ PR $\to$ Ingress (:bN) $\to$ UAT Smoke Gate $\to$ Release PR $\to$ GitOps. |
-| **RP-10.4** | **Artifact Preservation** | Defective builds are never deleted from registries. They are quarantined via metadata markers, locked against pulls, and preserved for offline forensic inspection. |
-| **RP-10.5** | **Mandatory Post-Rollback Dossier** | Every emergency rollback or hotfix must produce a cryptographic post-mortem within 24 hours detailing the failing and restoring digests. |
+| **RP-10.1** | **Rollback Is Pointer Repointing** | Rollback repoints `norns-gitops` to the prior `@sha256:` digest; it never recompiles code or deletes `:b<N>` artifacts. |
+| **RP-10.2** | **Pre-Cached Digest Recovery** | Pinning `@sha256:` digests ensures `containerd` on `urd`, `verdandi`, and `skuld` recovers from local disk cache in under 30 seconds. |
+| **RP-10.3** | **Verify the Live Substrate First** | Check CNI state (`/run/flannel/subnet.env`), container inodes (`stat -c %i`), Compose volume recreation (`up -d`, not `restart`), and signal semantics before guessing at code fixes. |
+| **RP-10.4** | **Hotfixes Walk the Same Rails** | Emergency fixes use an isolated worktree from `.bare`, build `:b<N+1>` on `main`, pass `check-release-source-parity.sh`, and promote via `release-pr.sh`. |
+| **RP-10.5** | **Quarantine, Never Purge** | Broken builds are tagged `:quarantined-<id>` in Harbor and preserved for forensic inspection. |
 
-By codifying these invariants into tooling and team culture, organizations transform emergencies from high-stress existential crises into calm, deterministic operational non-events.
+Repoint the digest first. Keep the corpse in Harbor. Fix forward on the rails.
 
 <!-- RUBRIC_CHECK: Chapter 10 conforms to RROM specification. -->

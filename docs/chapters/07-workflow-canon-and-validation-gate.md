@@ -1,45 +1,48 @@
 # Chapter 7: Workflow Canon & Validation Gate: The Release State Machine
 
-<!-- LICENSE: RROM Community License 1.0 (c) 2026 Ravenhelm LLC -->
+<!-- LICENSE: © 2026 Ravenhelm LLC. Licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/). Attribution required: "Ravenhelm LLC — Ravenhelm Release Operations Methodology (RROM), https://ravenhelm.dev". -->
 
-## The Anatomy of the Friday Evening Incident
+## The Ten Ghosts and the Fiction Release
 
-It is 5:12 p.m. on a Friday. A team of engineers has just wrapped up a two-week sprint. An urgent customer request—a defect fix in the payment reconciliation service—was merged into the `main` branch forty minutes earlier. The author created a git tag `v2.4.1` on their local laptop, pushed it to GitHub, and informed the release coordinator in the team Slack channel: *"Tag pushed, CI is green, deployment is complete."*
+On September 9, 2026, an audit across the estate turned up ten separate features that had been implemented, code-reviewed, backed by 73+ passing unit tests, merged to `main`, and never executed once in production:
 
-At 5:34 p.m., customer billing webhooks begin timing out. 
+1. `wire.py` (46 KB, merged in commit `9b1a402`): an entire wire-protocol module with comprehensive unit tests and zero callers anywhere in the repository.
+2. `serve_slice()` and `SliceWire`: tested in isolation, called nowhere.
+3. `doom turn-judge --deliver`: shipped in PR #107 with green CI, never wired into the supervisor hook that actually fired on turn completion.
+4. `vodozemac-bridge`: compiled cleanly as a standalone Rust binary for Matrix E2EE and wired into nothing.
+5. `doomstadt` PR #111: merged to `main`, packaged into a Homebrew formula whose install stanza omitted the new module entirely.
+6. `ensure_receiver()` in PR #111: wired inside `cmd_launch()`, while real operators launched slices via `doom new --launch`, which called `slicelib.launch()` directly and bypassed `cmd_launch()` every single time.
 
-Inside the staging environment, the application had operated flawlessly all week. But when the release tag `v2.4.1` was pushed, the CI runner did not deploy the binary that had run in staging. Instead, the runner’s workflow triggered a fresh compilation: `docker build -t app:v2.4.1 .`. During that compilation, an unpinned base dependency in the container package manifest pulled an updated upstream minor release that had been published thirty minutes prior. The new library introduced a subtle concurrency lock in the connection pool. 
+Every one had green tests. None of them ran. Unit tests ask *"is this function correct when my test harness calls it?"* Nothing in the pipeline asked *"is this code reachable from the entry point real callers use?"*
 
-To compound the failure, the developer who tagged the release had cherry-picked an undocumented configuration fix directly into their local checkout before running `git tag`. The git tag pointed to a commit that had never traversed the integration test suite on `main`. Staging ran build `b88`; production was running an untested mutant that shared its name.
+One month later, on October 9, 2026, `domainintelligenceschema` PR #11 merged and published a live `v1.8.0` specification site and `CHANGELOG.md`. The release notes proudly advertised seven new schema constructs: `dis:Observation`, `epistemicConfidence`, `CapabilityLease`, `MandateToken`, `decayHalfLifeSeconds`, `DisagreementMatrix`, and `consensusThreshold`. CI was bright green with 196 passing assertions. Then we ran `grep` across `vocabulary/`, `shapes/`, `cue/`, and `tests/` for those seven identifiers. It returned **zero hits** for every single one of them. The worker slice had written the `v1.8.0` changelog and marketing site from a draft vision document while the 196 passing tests only tested the old DIS 1.7 vocabulary. We had tagged and published a work of fiction.
 
-When the incident bridge convened, distributed ambiguity paralyzed remediation. The developer insisted the code was identical to what passed review. The platform engineer pointed out that the container SHA in production did not match the staging container SHA. The release coordinator could not determine what source code was actually executing inside the container pods. Rollback was stalled because nobody knew which preceding tag was safe.
+And when operators tried to verify live deployments by opening browser dashboards (`the-work`, `Vitki`, `Yager`), they hit a third trap: frontend UIs designed with graceful degradation silently caught HTTP 500s or missing backend routes and fell back to hardcoded mock data. The screen rendered green status cards while the underlying daemon was dead.
 
-This catastrophe illustrates the fatal defect of conventional software release pipelines: **collapsing integration, compilation, naming, and deployment into an untracked, ambient blur.**
-
-The Ravenhelm Release Operations Methodology (RROM) eradicates this failure mode through the **Release State Machine**. Software promotion is governed not by human discretion, informal chat confirmations, or ambient CI triggers, but by a deterministic, mathematically verifiable finite state machine.
+Conventional pipelines collapse integration, compilation, naming, and verification into an ambient blur where "CI passed" and "PR merged" are treated as proof of delivery. The Ravenhelm Release Operations Methodology (RROM) replaces that optimism with the **Release State Machine** and a four-lock **Validation Gate**.
 
 ---
 
 ## The Formal Finite State Machine
 
-Under RROM, the lifecycle of software between trunk integration and live customer traffic is modeled as a deterministic Finite State Machine (FSM):
+Under RROM, the lifecycle of software between trunk integration and live production service is governed by a deterministic Finite State Machine (FSM):
 
 $$\mathcal{M} = (S, \Sigma, \delta, s_0, F)$$
 
 Where:
-* $S = \{ \text{INGRESS}, \text{CANDIDATE}, \text{PINNED}, \text{PROMOTED}, \text{CONVERGED} \}$ is the finite set of valid operational states.
-* $\Sigma = \{ \text{MergeToMain}, \text{DeployUAT}, \text{InvokeReleasePR}, \text{MergeReleasePR}, \text{TagAndRetag}, \text{SyncGitOps}, \text{VerifyHealth} \}$ is the alphabet of discrete operational events.
-* $s_0 = \text{INGRESS}$ is the initial state triggered by trunk integration.
-* $F = \{ \text{CONVERGED} \}$ is the sole terminal acceptance state.
-* $\delta: S \times \Sigma \to S \cup \{ \bot \}$ is the state transition function.
+- $S = \{ \text{INGRESS}, \text{CANDIDATE}, \text{PINNED}, \text{PROMOTED}, \text{CONVERGED} \}$ is the finite set of valid operational states.
+- $\Sigma = \{ \text{MergeToMain}, \text{DeployUAT}, \text{InvokeReleasePR}, \text{MergeReleasePR}, \text{TagAndRetag}, \text{SyncGitOps}, \text{VerifyHealth} \}$ is the alphabet of discrete operational events.
+- $s_0 = \text{INGRESS}$ is the initial state triggered by trunk integration.
+- $F = \{ \text{CONVERGED} \}$ is the sole terminal acceptance state.
+- $\delta: S \times \Sigma \to S \cup \{ \bot \}$ is the state transition function.
 
 | State | Ingress Event | Action & Verification Gate |
 | :--- | :--- | :--- |
-| **1. INGRESS** | Feature PR merged to `main` | CI builds container once; pushes `:b<N>` and content digest `@sha256:...` to Harbor. |
-| **2. CANDIDATE** | Declarative sync to Staging/UAT | Automatic rollout to staging; synthetic integration probes hammer endpoints over live network. |
-| **3. PINNED** | Custodian runs `release-pr.sh` | Pins chart and docs; `check-release-source-parity.sh` asserts zero code drift (RP-5). |
-| **4. PROMOTED** | Closer merges PR & pushes tag | `check-release-tag.sh` verifies 3-way alignment; Registry API retags digest to `:vX.Y.Z`. |
-| **5. CONVERGED** | Argo CD reconciles GitOps repo | Pinned digest deployed to pods; live runtime health probes query active network interface. |
+| **1. INGRESS** | Feature PR merged to `main` | CI builds container once; pushes `:b<N>`, `:sha-<commit12>`, and `@sha256:...` to Harbor. |
+| **2. CANDIDATE** | Declarative sync to Staging/UAT | Auto-rollout to UAT; caller-entry-point reachability checks and daemon probes execute over the network. |
+| **3. PINNED** | Custodian runs `release-pr.sh` | Pins chart and changelog; `check-release-source-parity.sh` and artifact-grep verify zero drift and zero fiction. |
+| **4. PROMOTED** | Closer merges PR & pushes tag | `check-release-tag.sh` verifies 3-way alignment; Registry v2 API retags digest to `:vX.Y.Z`. |
+| **5. CONVERGED** | Argo CD reconciles `norns-gitops` | Pinned digest deployed to `Norns` pods; live daemon socket probe confirms running build and commit SHA. |
 
 ### The Fail-Closed Transition Invariant
 
@@ -47,19 +50,21 @@ Every state transition $\delta(s_i, e_j)$ is guarded by a Boolean validation pre
 
 $$\delta(s_i, e_j) = \begin{cases} s_{i+1} & \text{if } P_k = \text{true} \\ \bot & \text{if } P_k = \text{false} \end{cases}$$
 
-The state machine is strictly **fail-closed**: if any predicate evaluates to `false`, the machine halts immediately in an error state ($\bot$). Forward execution is blocked. No tags are pushed, no manifests are retagged, and no production environments are updated. The release cannot "partially succeed." 
+If any predicate evaluates to `false`, the machine halts in $\bot$. Forward execution stops cold. No tags are pushed, no manifests are retagged in Harbor, and `norns-gitops` is never bumped.
 
 ---
 
 ## State 1: INGRESS (The Integration Event)
 
 ### Operational Definition
-State 1 begins the moment an approved pull request is merged into the integration trunk (`main`). Ingress is the **only** point in the entire RROM lifecycle where compilation, bundling, and container packaging are permitted to occur (**RP-1: Build Once on Ingress**). 
 
-The integration pipeline (`.forgejo/workflows/build.yml` or `.github/workflows/build.yml`) executes on an ephemeral CI runner. The runner compiles source code hermetically, executes unit and integration test suites, and constructs the physical release artifact.
+State 1 begins the moment an approved pull request merges into `main`. Ingress is the **only** point in the entire RROM lifecycle where compilation, bundling, and container packaging are permitted to occur (**RP-1: Build Once on Ingress**).
+
+The ingress workflow (`.forgejo/workflows/build.yml`) runs on an ephemeral container runner, compiles the binary hermetically, runs unit and integration tests, and builds the physical OCI image and Helm chart.
 
 ### Mandatory OCI Metadata Injection
-During image construction, the build engine must inject immutable provenance labels conforming to the Open Container Initiative (OCI) Image Specification and Ravenhelm Estate Standards into the container manifest:
+
+During image construction, the build engine bakes immutable provenance labels into the OCI container configuration:
 
 ```dockerfile
 # Containerfile / Dockerfile label injection snippet
@@ -75,12 +80,13 @@ LABEL org.opencontainers.image.source="https://git.ravenhelm.dev/platform/ravenm
 ```
 
 ### Artifact Construction and Registry Admission
-The built image is pushed to the central OCI registry (Harbor) under three distinct pointer references:
-1. **The Monotonic Build Tag:** `:b<N>` (e.g., `:b42`), strictly monotonic per repository.
-2. **The Immutable Commit Reference:** `:sha-<commit12>` (e.g., `:sha-9f8a3c21e01b`), binding the artifact to its exact source tree commit.
-3. **The Rolling Staging Stream:** `:uat`, allowing automated deployment to the continuous staging environment.
 
-The registry returns the immutable cryptographic content address: `@sha256:<64-hex-digest>`. From this moment onward, the physical binary unit is frozen.
+The built image is pushed to Harbor (`harbor.ravenhelm.dev`) under three tags pointing to the identical `@sha256:` manifest digest:
+1. **The Monotonic Build Tag:** `:b<N>` (for example, `:b42`), strictly monotonic per repository.
+2. **The Immutable Commit Reference:** `:sha-<commit12>` (for example, `:sha-9f8a3c21e01b`), binding the artifact to its exact git commit.
+3. **The Rolling Staging Stream:** `:uat`, triggering automatic reconciliation into the staging namespace.
+
+From the second Harbor returns `sha256:c9e54a32...`, the compiled binary is frozen.
 
 ### Exact CLI Execution Transcript: Ingress Build
 
@@ -126,19 +132,19 @@ $ echo $?
 
 ---
 
-## State 2: CANDIDATE (Staging / UAT Exercise)
+## State 2: CANDIDATE (Reachability & Daemon Proving in UAT)
 
 ### Operational Definition
-State 2 is the validation crucible. The artifact tagged `:uat` (bearing digest `sha256:c9e54a32...`) is automatically reconciled into the pre-production staging environment (e.g., `k3s-uat`). 
 
-Under RROM, staging is not an approximation of production; it is the physical proving ground for the exact immutable container image that will be promoted to production (**RP-3: Promotion by Reference**). 
+State 2 is where the Ten Ghosts of 2026-09-09 get caught before they can become a release. The artifact tagged `:uat` (`sha256:c9e54a32...`) is automatically deployed into the UAT namespace on `Norns` (**RP-3: Promotion by Reference**).
 
-### Automated Canary & Soak Criteria
-Before an artifact in State 2 can be deemed eligible for promotion to State 3, it must satisfy a battery of automated and synthetic verification gates:
-1. **Network Connectivity & Readiness:** Pods achieve `Ready` status within 30 seconds; HTTP probes against `/api/health` return status `200 OK` with JSON payload confirming database, Redis, and message bus reachability.
-2. **Schema & Migration Verification:** Any pending database migrations execute within staging against an isolated read-replica clone. Migration idempotency is verified (`down` followed by `up`).
-3. **Integration & E2E Test Suite Execution:** Automated Playwright browser tests, API contract assertions, and synthetic transaction generators execute against the staging ingress.
-4. **Telemetry & Error Budget Audit:** VictoriaMetrics and OpenTelemetry collectors confirm zero unexpected 5xx responses and zero panic backtraces over a minimum 15-minute soak window.
+### Caller-Entry-Point Reachability & Direct Daemon Probes
+
+Passing unit tests in State 1 proves internal function logic; State 2 must prove **caller reachability** and **live daemon state**:
+
+1. **Caller-Entry-Point Reachability:** Every feature introduced since the last release must be exercised through the exact CLI subcommand (`doom new --launch`, not just `doom launch`), HTTP route, or event consumer that production callers invoke. If a binary or module was added (`vodozemac-bridge`, `wire.py`), the candidate gate verifies that the packaged artifact contains the file and that the live supervision loop invokes it.
+2. **Probe the Daemon, Never the Mock-Fallback UI:** Because web dashboards and TUI status bars frequently catch backend connection errors and fall back to cached or mock fixtures (`loop-uis-silently-fall-back-to-mock-data`), never certify a candidate by looking at a rendered web page. Probe the backend daemon's JSON RPC or REST socket directly (`curl -sf https://uat.../api/health`), and assert on the returned `build`, `revision`, and live datastore dependency counters.
+3. **Schema & Migration Verification:** Pending SQL migrations run via `scripts/apply-migrations.sh` against the UAT Postgres database, verifying that `schema_migrations` records the version cleanly.
 
 ### Exact CLI Execution Transcript: Candidate Validation
 
@@ -159,7 +165,7 @@ $ curl -sS https://uat.ravenmask.net/api/health | jq .
   "uptime_seconds": 914
 }
 
-# Execute end-to-end regression suite against live candidate
+# Execute end-to-end reachability suite through real caller entry points
 $ npm run test:uat:smoke -- --env=staging
 Running 42 integration tests across 6 suites...
 
@@ -176,28 +182,26 @@ $ echo $?
 0
 ```
 
-Once the test suite exits with code `0` and soak telemetry verifies zero error budget burn, the build artifact (e.g., `b42`) transitions to a candidate ready for formal naming.
-
 ---
 
-## State 3: PINNED (The Release Pull Request)
+## State 3: PINNED (The Release PR, Source Parity & Artifact-Grep)
 
 ### Operational Definition
-State 3 formalizes the release candidate into version-controlled git metadata. In accordance with the Core Axiom—*Releases never rebuild code* (**RP-2**)—a release is executed entirely by updating declarative pointers.
 
-The Release Custodian initiates State 3 by executing the canonical release script:
+State 3 pins the validated candidate into git metadata without touching application source code (**RP-2: Releases Never Rebuild**). The Release Custodian runs:
 
 ```bash
 scripts/release-pr.sh <build-id> <semver-tag>
 ```
 
 ### The Anatomy of `release-pr.sh`
-The `scripts/release-pr.sh` utility performs the following discrete actions:
-1. **Registry Introspection:** It connects to Harbor via the OCI Distribution API (Registry v2) and queries the exact digest for the requested build (`b42`).
-2. **Commit Lineage Resolution:** It inspects the tags on that digest in Harbor, locates the corresponding `sha-<commit12>` tag, and validates against the local git repository that this commit exists and is an ancestor of `HEAD`.
+
+1. **Registry Introspection:** Queries Harbor's OCI Distribution API (Registry v2) for the exact `@sha256:` digest of build `b42`.
+2. **Commit Lineage Resolution:** Reads the tags on that digest in Harbor, extracts `sha-<commit12>`, and verifies in git that `9f8a3c21e01b` is an ancestor of `HEAD`.
 3. **Metadata Pinning (Zero Source Edits):**
-   * **`chart/Chart.yaml`**: Updates `version` and `appVersion` to the target SemVer without the `v` prefix (e.g., `1.4.2`).
-   * **`chart/values.yaml`**: Updates four immutable deployment coordinates:
+   - **`chart/Chart.yaml`**: Updates `version` and `appVersion` to `1.4.2`.
+   - **`chart/values.yaml`**: Pins the four deployment coordinates:
+
      ```yaml
      image:
        tag: "v1.4.2"
@@ -205,27 +209,45 @@ The `scripts/release-pr.sh` utility performs the following discrete actions:
        build: "b42"
        revision: "9f8a3c21e01b38f87029c2ea55bd51ef350c33a2"
      ```
-   * **`CHANGELOG.md`**: Prepends a clean markdown changelog section documenting the release version, release date, build identifier, and digest.
 
-### The Source Parity Guard: `check-release-source-parity.sh`
+   - **`CHANGELOG.md`**: Prepends the `v1.4.2` entry citing build `b42`, digest `sha256:c9e54a32...`, and the concrete symbols shipped.
+
+### Gate Lock A: The Source Parity Guard (`check-release-source-parity.sh`)
 
 ![Diagram 3: Source Parity Triangle](diagram3-parity-triangle)
 
-Before opening the release pull request, the script executes the mandatory gate check:
+Under **RP-5 (Parity Precedes Promotion)**, a release pull request is forbidden from modifying application source files. Because compilation happened once at State 1 (`INGRESS`), any source edit committed on a release branch would never exist inside the `:b42` container image.
 
-```bash
-scripts/check-release-source-parity.sh <pinned-digest> <tag-commit>
-```
-
-Under **RP-5 (Parity Precedes Promotion)**, a release pull request is strictly forbidden from modifying application source files. Because compilation occurs only at Ingress, any source code changes introduced in a release PR would never be compiled into the container binary. Shipping source code changes in a release PR creates an immediate divergence between git history and container reality.
-
-The parity check computes an ancestry verification and an isolated file-tree diff between the commit that produced the build and the release commit:
+`scripts/check-release-source-parity.sh` runs an exact path-filtered diff between the build commit and the release commit:
 
 ```bash
 git diff --quiet "$BUILD_COMMIT" "$TAG_COMMIT" -- . ':(exclude)chart' ':(exclude)CHANGELOG.md'
 ```
 
-If the diff is non-empty, the script refuses to proceed and exits with code `1`.
+If any file outside `chart/` and `CHANGELOG.md` differs, the gate exits `1` and kills the release PR.
+
+### Gate Lock B: Artifact-Grep Release Verification (Killing the Fiction Release)
+
+To make the October 9, 2026 `DIS 1.8` fiction release structurally impossible to repeat, State 3 adds the **Artifact-Grep Gate**. Before any release PR can merge or any git tag can be minted, every backticked code identifier, schema construct, CLI flag, or API route claimed in the new `CHANGELOG.md` section (or release site diff) is extracted and grepped against the actual source and artifact directories (`src/`, `vocabulary/`, `shapes/`, `cue/`, `tests/`):
+
+```bash
+#!/usr/bin/env bash
+# Extract backticked identifiers from the top CHANGELOG.md section and prove they exist in the tree
+set -euo pipefail
+CLAIMED_SYMBOLS=$(awk '/^## \[/{flag++} flag==1' CHANGELOG.md | grep -oE '`[A-Za-z0-9_:./-]+`' | tr -d '`' | sort -u)
+
+for sym in $CLAIMED_SYMBOLS; do
+  # Skip pure version/build tokens
+  [[ "$sym" =~ ^(v?[0-9]+\.[0-9]+|b[0-9]+|sha256:|[0-9a-f]{12,40})$ ]] && continue
+  if ! grep -rqF "$sym" src/ chart/ vocabulary/ shapes/ cue/ tests/ 2>/dev/null; then
+    echo "FICTION RELEASE BLOCKED: CHANGELOG claims '$sym', but zero hits exist in artifact trees!" >&2
+    exit 1
+  fi
+done
+echo "PASS: All claimed release identifiers verified in source artifacts."
+```
+
+If a worker lane hallucinates `dis:Observation` or `MandateToken` into the release notes from a design doc without shipping the code, the grep returns zero hits and aborts the release before review.
 
 ### Exact CLI Execution Transcript: Generating the Release PR
 
@@ -259,7 +281,8 @@ $ echo $?
 ```
 
 ### Fail-Closed Gate Walkthrough: Source Parity Failure
-Consider an Author who attempted to fix a typo in `src/server.ts` within the release branch:
+
+When an author sneaks a one-line edit to `src/server.ts` onto the release branch:
 
 ```bash
 # Developer illicitly touches source code on the release branch
@@ -268,51 +291,54 @@ $ git commit -am "fix: small comment adjustment"
 
 # Release Custodian invokes source parity verification
 $ ./scripts/check-release-source-parity.sh sha256:c9e54a32e18d7f6b9c8a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e HEAD
-REFUSING: the tag commit a1b2c3d4e5f6 carries source changes not present in the pinned build 9f8a3c21e01b (sha-9f8a3c21e01b) — either pin the build of a later commit, or tag a commit whose only changes since the build are chart/CHANGELOG. Differing paths:
+REFUSING: the tag commit a1b2c3d4e5f6 carries source changes not present in the pinned build 9f8a3c21e01b (sha-9f8a3c21e01b) - either pin the build of a later commit, or tag a commit whose only changes since the build are chart/CHANGELOG. Differing paths:
   src/server.ts
 
 $ echo $?
 1
 ```
-The state machine halts in $\bot$. The PR cannot pass CI and cannot be merged.
+
+The state machine halts in $\bot$.
 
 ---
 
 ## State 4: PROMOTED (The Tag and Retag Gate)
 
 ### Operational Definition
-State 4 is the authorization and naming threshold. The Release PR has been reviewed and approved. In accordance with **RP-10 (Merge-Then-Deploy)**, the Delivery Closer merges the PR into `main` and immediately tags the commit with an annotated git tag.
 
-Once pushed, the code host release workflow executes two non-negotiable gates:
+State 4 is the naming threshold. Once the Release PR merges to `main`, the Delivery Closer creates an annotated git tag `v1.4.2` and pushes it (**RP-10: Merge-Then-Deploy**).
+
+The tag push triggers `.forgejo/workflows/release.yml`, which enforces two gates:
 1. **The Three-Way Tag Parity Check (`scripts/check-release-tag.sh`)**
 2. **Registry Manifest Retagging (`scripts/harbor-artifact.sh retag`)**
 
-### The Three-Way Tag Parity Invariant
-The script `check-release-tag.sh` verifies the mathematical equality of the version declarations across three distinct surfaces:
+### Gate Lock C: The Three-Way Tag Parity Invariant (`check-release-tag.sh`)
+
+`check-release-tag.sh` proves mathematical equality across all three version declarations:
 
 $$\text{Git Tag (with 'v')} \equiv \text{values.yaml \texttt{image.tag}} \equiv \text{"v" + Chart.yaml \texttt{version}}$$
 
-It also asserts that:
-* `values.yaml image.digest` matches regex `^sha256:[0-9a-f]{64}$`
-* `values.yaml image.build` matches regex `^b[0-9]+$`
-* `values.yaml image.revision` matches regex `^[0-9a-f]{40}$`
-
-If any string fails to align, the script exits `1` and aborts the release pipeline.
+It simultaneously asserts that:
+- `values.yaml image.digest` matches `^sha256:[0-9a-f]{64}$`
+- `values.yaml image.build` matches `^b[0-9]+$`
+- `values.yaml image.revision` matches `^[0-9a-f]{40}$`
 
 ### The Registry v2 API Retagging Mechanism
-Once tag parity is proven, Harbor must bind the SemVer tag (`v1.4.2`) to the immutable candidate digest. Under RROM, this is done **without pulling the image, without invoking Docker, and without recompiling layers** (**RP-2**).
 
-The utility `scripts/harbor-artifact.sh retag` communicates directly with the OCI Distribution API (Docker Registry v2 API):
-1. **Idempotency Check:** Performs an HTTP `HEAD /v2/<project>/<repo>/manifests/v1.4.2`. If the tag already exists and points to the identical digest, it exits `0`. If the tag exists and points to a *different* digest, it halts with error code `1` (**Fail-Closed: Refuse Tag Overwrite**).
-2. **Harbor Tag API:** Invokes Harbor's native artifact tagging endpoint:
+Once `check-release-tag.sh` passes, Harbor binds `:v1.4.2` directly to `sha256:c9e54a32...` without pulling layers or invoking Docker (**RP-2**):
+
+1. **Idempotency & Immutability Check:** Issues `HEAD /v2/<project>/<repo>/manifests/v1.4.2`. If `:v1.4.2` already exists on the identical digest, it exits `0`. If `:v1.4.2` points to a different digest, it exits `1` (**Refuse Tag Overwrite**).
+2. **Harbor Artifact Tag API:** Calls Harbor's API to attach the tag:
+
    ```http
    POST /api/v2.0/projects/platform/repositories/ravenmaskos-ccc-web/artifacts/sha256:c9e54a32.../tags
    Content-Type: application/json
 
    {"name": "v1.4.2"}
    ```
-3. **OCI Fallback PUT:** If the management API is unavailable, it pulls the raw manifest JSON for `sha256:c9e54a32...` via HTTP `GET` and issues an HTTP `PUT /v2/platform/ravenmaskos-ccc-web/manifests/v1.4.2` with the exact manifest body and `Content-Type: application/vnd.oci.image.manifest.v1+json`.
-4. **Verification Read:** Executes a follow-up HTTP `HEAD` against the new tag to cryptographically confirm that `harbor.ravenhelm.dev/...:v1.4.2` resolves to `sha256:c9e54a32...`.
+
+3. **OCI Distribution Fallback:** If needed, GETs the raw manifest JSON for `sha256:c9e54a32...` and PUTs it to `/v2/platform/ravenmaskos-ccc-web/manifests/v1.4.2` with `Content-Type: application/vnd.oci.image.manifest.v1+json`.
+4. **Follow-Up Read Proof:** Queries the digest of `:v1.4.2` from Harbor and verifies it equals `sha256:c9e54a32...` before exiting.
 
 ### Exact CLI Execution Transcript: Tagging and Retagging
 
@@ -349,7 +375,8 @@ $ echo $?
 ```
 
 ### Fail-Closed Gate Walkthrough: Tag Mismatch
-Suppose an operator tags `v1.4.3` on a commit where `values.yaml` declared `v1.4.2`:
+
+If an operator tags `v1.4.3` on a commit where `Chart.yaml` says `1.4.2`:
 
 ```bash
 $ export CCC_TAG="v1.4.3"
@@ -359,38 +386,36 @@ chart/Chart.yaml version (1.4.2) must equal tag without v (1.4.3)
 $ echo $?
 1
 ```
-The pipeline fails instantly. No registry retagging occurs. Production remains untouched.
+
+The pipeline aborts before touching Harbor.
 
 ---
 
 ## State 5: CONVERGED (GitOps Reconciliation & Proof of Life)
 
 ### Operational Definition
-State 5 is the terminal state of the release machine. The artifact has been built, tested, pinned, and promoted. Now, the declarative runtime must converge.
 
-Under **RP-9 (Declarative Convergence Authority)**, CI runners and human operators never invoke `kubectl apply` or `helm upgrade` directly against production clusters. The release pipeline updates the central GitOps repository (`norns-gitops`):
+State 5 is the terminal state of the release state machine. Under **RP-9 (Declarative Convergence Authority)**, the release workflow or Release Custodian opens the deployment bump in `norns-gitops`:
 
-```bash
-# Automation opens PR in norns-gitops updating targetRevision
-apps/ravenmaskos-ccc-web/values.yaml:
-  targetRevision: v1.4.2
+```yaml
+# apps/ravenmaskos-ccc-web/values.yaml in norns-gitops
+targetRevision: v1.4.2
 ```
 
-### Argo CD Automated Reconciliation
-The GitOps engine (Argo CD) continuously monitors the GitOps repository. Upon detecting the merged commit on `main`:
-1. Argo CD compares the declared desired state (`v1.4.2` with digest `sha256:c9e54a32...`) against live cluster state.
-2. Argo CD initiates a rolling replacement of the Kubernetes Deployment pods.
-3. Kubelet on each worker node pulls the image by its immutable digest:
-   `harbor.ravenhelm.dev/platform/ravenmaskos-ccc-web:v1.4.2@sha256:c9e54a32e18d7f6b9c8a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e`
-4. The runtime platform executes Kubernetes `readinessProbe` and `livenessProbe` checks before redirecting ingress traffic to the new pods.
+### Argo CD Reconciliation on `Norns`
 
-### Proof of Life: Runtime Verification (RP-13)
-Under **RP-13 (Shell Success Is Not Proof)**, a pipeline status of "Sync OK" in Argo CD is an unverified assertion. The release is not complete until the Delivery Closer executes a live runtime health probe directly against the serving network socket.
+Upon merge to `main` in `norns-gitops`:
+1. Argo CD diffs desired state (`v1.4.2` @ `sha256:c9e54a32...`) against the live `Norns` namespace.
+2. Argo CD initiates a rolling replacement across `urd`, `verdandi`, and `skuld`.
+3. `containerd` on each node pulls `harbor.ravenhelm.dev/platform/ravenmaskos-ccc-web:v1.4.2@sha256:c9e54a32...`.
+4. Kubernetes verifies `readinessProbe` and `livenessProbe` before shifting Traefik ingress endpoints.
 
-The probe must verify three independent facts:
-1. The running process is healthy and serving HTTP `200 OK`.
-2. The running process reports its build ID as `b42`.
-3. The running process reports its commit revision as `9f8a3c21e01b...`.
+### Gate Lock D: Live Daemon Proof of Life (RP-13)
+
+Under **RP-13 (Shell Success Is Not Proof)**, an Argo CD status of `Synced / Healthy` is not closure. The Delivery Closer must query the live production daemon endpoint and verify three receipts:
+1. The daemon responds HTTP `200 OK` on its real API socket (not a static HTML shell or mock-fallback UI).
+2. The response payload reports `build: "b42"` and `release: "v1.4.2"`.
+3. The response payload reports `revision: "9f8a3c21e01b..."` matching the git tag commit's build lineage.
 
 ### Exact CLI Execution Transcript: Convergence and Proof of Life
 
@@ -405,11 +430,11 @@ TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME  
 
 # Verify running pod image IDs match the exact immutable digest
 $ kubectl get pods -n norns -l app.kubernetes.io/name=ravenmaskos-ccc-web -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.status.containerStatuses[0].imageID}{"\n"}{end}'
-ravenmaskos-ccc-web-7b9f8d6c4-j2k9l	harbor.ravenhelm.dev/platform/ravenmaskos-ccc-web@sha256:c9e54a32e18d7f6b9c8a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e
-ravenmaskos-ccc-web-7b9f8d6c4-m5n8p	harbor.ravenhelm.dev/platform/ravenmaskos-ccc-web@sha256:c9e54a32e18d7f6b9c8a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e
-ravenmaskos-ccc-web-7b9f8d6c4-q1w2e	harbor.ravenhelm.dev/platform/ravenmaskos-ccc-web@sha256:c9e54a32e18d7f6b9c8a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e
+ravenmaskos-ccc-web-7b9f8d6c4-j2k9l harbor.ravenhelm.dev/platform/ravenmaskos-ccc-web@sha256:c9e54a32e18d7f6b9c8a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e
+ravenmaskos-ccc-web-7b9f8d6c4-m5n8p harbor.ravenhelm.dev/platform/ravenmaskos-ccc-web@sha256:c9e54a32e18d7f6b9c8a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e
+ravenmaskos-ccc-web-7b9f8d6c4-q1w2e harbor.ravenhelm.dev/platform/ravenmaskos-ccc-web@sha256:c9e54a32e18d7f6b9c8a0b1c2d3e4f5a6b7c8d9e0f1a2b3c4d5e6f7a8b9c0d1e
 
-# Execute live runtime health probe directly on production interface
+# Execute live runtime health probe directly on production daemon socket
 $ curl -sS https://ccc.ravenhelm.dev/api/health | jq .
 {
   "status": "healthy",
@@ -424,7 +449,7 @@ $ curl -sS https://ccc.ravenhelm.dev/api/health | jq .
     "redis": "connected",
     "nats": "connected"
   },
-  "cluster_node": "odin-k3s-worker-02",
+  "cluster_node": "verdandi",
   "uptime_seconds": 42
 }
 
@@ -432,37 +457,25 @@ $ echo $?
 0
 ```
 
-With the health probe returning `status: healthy` and confirming build `b42` running from revision `9f8a3c21...`, the state transition completes. The release has officially reached **CONVERGED**.
-
 ---
 
 ## The Master State Transition Matrix
 
-The table below codifies the operational mechanics, cryptographic predicates, and sovereign operator handoffs governing all state transitions within the RROM state machine:
-
 | Current State ($s_i$) | Transition Event ($e_j$) | Guard Predicate ($P_k$) | Next State ($s_{i+1}$) | Failure Outcome ($\bot$) | Responsible Operator |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **1. INGRESS** | Merge feature PR to `main` | CI build succeeds; unit/integration tests pass; OCI labels injected; digest generated. | **2. CANDIDATE** | Build halted; zero artifacts published to registry; PR marked broken. | **The Author** / CI Runner |
-| **2. CANDIDATE** | Automated deploy to Staging/UAT | Pods healthy; `/api/health` 200 OK; E2E smoke tests pass; soak telemetry clean. | **3. PINNED** | Staging rollback; build `b<N>` marked unviable; promotion blocked. | **Release Custodian** |
-| **3. PINNED** | Run `scripts/release-pr.sh b<N> vX.Y.Z` | `check-release-source-parity.sh` asserts zero application source code drift (`diff == 0`). | **4. PROMOTED** | Release PR generation aborted; uncompiled source edits rejected. | **Release Custodian** |
-| **4. PROMOTED** | Merge Release PR; push git tag `vX.Y.Z` | `check-release-tag.sh` proves 3-way parity; Harbor retags manifest via Registry v2 API. | **5. CONVERGED** | Tag rejected; CI release pipeline exits 1; zero registry retagging. | **Delivery Closer** |
-| **5. CONVERGED** | GitOps manifest update in `norns-gitops` | Argo CD reconciles cluster; live runtime probe returns `status: healthy` on public ingress. | **TERMINAL (Done)** | Instant GitOps pointer revert to preceding stable digest (**RP-14**). | **Delivery Closer** |
+| **1. INGRESS** | Merge feature PR to `main` | CI build succeeds; unit tests pass; OCI provenance labels injected; `@sha256:` digest pushed to Harbor. | **2. CANDIDATE** | Build halted; zero artifacts published to Harbor; PR marked broken. | **The Author** / CI Runner |
+| **2. CANDIDATE** | Automated deploy to UAT | Caller-entry-point reachability proven; daemon `/api/health` returns 200 OK; migrations cleanly applied. | **3. PINNED** | UAT halted; build `:b<N>` rejected as unreachable or unhealthy; promotion blocked. | **Release Custodian** |
+| **3. PINNED** | Run `scripts/release-pr.sh b<N> vX.Y.Z` | `check-release-source-parity.sh` proves `diff == 0` on source; Artifact-Grep verifies all claimed changelog symbols exist. | **4. PROMOTED** | Release PR aborted; uncompiled source edits or fictional changelog claims rejected. | **Release Custodian** |
+| **4. PROMOTED** | Merge Release PR; push tag `vX.Y.Z` | `check-release-tag.sh` proves 3-way parity; Harbor retags manifest via Registry v2 API. | **5. CONVERGED** | Tag rejected; CI release workflow exits 1; zero registry retagging. | **Delivery Closer** |
+| **5. CONVERGED** | GitOps manifest bump in `norns-gitops` | Argo CD syncs `Norns` pods; live daemon socket probe confirms `vX.Y.Z`, `:b<N>`, and commit SHA. | **TERMINAL (`Done`)** | Instant GitOps pointer revert to preceding stable digest (**RP-14**). | **Delivery Closer** |
 
 ---
 
 ## Fail-Closed Rollback Dynamics
 
-Under RROM, what happens when an unexpected incident occurs after State 5?
+When a release fails Gate Lock D after State 5, nobody opens an editor to "fix forward" in a panic, and nobody runs a 20-minute tag rebuild (**RP-14: Fail-Closed Rollback**).
 
-Conventional release architectures attempt to "roll forward" under duress by rapidly committing fixes to `main` or frantically rebuilding previous tags. This practice routinely multiplies outage severity.
-
-Under RROM, **bad builds are never deleted, and releases are never rolled forward in a panic** (**RP-14: Fail-Closed Rollback**). 
-
-Because every release is an explicit pointer to an immutable, pre-tested digest in the GitOps repository, rollback is mathematically instantaneous:
-1. The Delivery Closer opens the GitOps configuration repository (`norns-gitops`).
-2. The `targetRevision` or pinned `digest` is reverted to the preceding verified release (e.g., `v1.4.1` @ `sha256:8b1c...`).
-3. Argo CD immediately detects the reversion and initiates a rolling rollout of the prior container pods.
-4. Kubelet restarts the prior image containers directly from local cache or the Harbor registry.
+Because every release in `norns-gitops` is a pointer to an immutable Harbor digest whose container layers are already cached on `urd`, `verdandi`, and `skuld`, rollback is a single git revert:
 
 ```bash
 # Emergency rollback execution: revert GitOps pin to preceding stable release
@@ -479,22 +492,20 @@ TIMESTAMP                  GROUP        KIND   NAMESPACE                  NAME  
 2026-11-04T17:58:12-06:00   apps  Deployment       norns   ravenmaskos-ccc-web    Synced  Healthy             deployment.apps/ravenmaskos-ccc-web reverted to v1.4.1
 ```
 
-The cluster returns to the known good state within seconds. The failed build `b42` remains preserved in Harbor, complete with its logs, symbols, and metadata, available for forensic post-mortem analysis without polluting active customer traffic.
+The cluster converges back to `v1.4.1` in under 30 seconds while build `b42` stays intact in Harbor for forensic triage.
 
 ---
 
-## Conclusion: The Validation Gate as Estate Law
+## Conclusion: The Four Locks of the Validation Gate
 
-A release process that relies on human vigilance is a failure waiting for a tired evening. By formalizing release operations into a 5-state finite state machine with fail-closed gates, RROM converts the fragile art of software deployment into a deterministic engineering science.
+Green unit tests prove only that isolated functions agree with their mocks. Before any issue in Linear can move from `Validation` to `Done`, the release must clear all four physical locks of the RROM Validation Gate:
 
-* **Build Once on Ingress (RP-1):** The bits are frozen at the integration threshold.
-* **Releases Never Rebuild (RP-2):** Promotion is metadata assignment, not compilation.
-* **Parity Precedes Promotion (RP-5):** Source drift in release PRs is mathematically forbidden.
-* **Tags for Humans, Digests for Runtime (RP-4):** Kubernetes schedules cryptographic digests, not mutable tags.
-* **Merge-Then-Deploy (RP-10):** Authorization to merge is authorization to ship and prove.
-* **Shell Success Is Not Proof (RP-13):** The machine halts only when live network verification succeeds.
+1. **Caller Reachability (`State 2`):** The feature executes through the exact CLI command or network entry point real callers use.
+2. **Source Parity (`check-release-source-parity.sh`):** Zero application source files changed between the `:b<N>` build commit and the release commit.
+3. **Artifact-Grep Parity (`State 3`):** Every identifier claimed in `CHANGELOG.md` resolves via `grep` to real definitions in the artifact tree.
+4. **Live Daemon Proof (`State 4 & 5`):** `check-release-tag.sh` confirms three-way version alignment, and the live production daemon socket returns the exact `:b<N>` build and commit SHA.
 
-When these gates govern the estate, the Friday evening incident is rendered structurally impossible. The software in production is the software that ran in staging, byte for byte, digest for digest, proven on the live network.
+If it cannot be grepped in the tree and reached on the socket, it did not ship.
 
 <!-- RUBRIC_CHECK:
   structural: pass

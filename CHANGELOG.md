@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0] - 2026-11-04
 
 ### Added
+
 - Initial public release of the Ravenhelm Release Operations Methodology (RROM).
 - Codified 14 core chapters, two technical appendices, and eighteen numbered principles (`RP-1` through `RP-18`).
 - Formalized the Core Axiom: "Builds are the unit; releases are names."
