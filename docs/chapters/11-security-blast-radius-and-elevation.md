@@ -337,11 +337,13 @@ Valkyrie records `elev_tok_99a82b3c` as spent in its persistent store and emits 
 ## 8. Summary of Invariants & Augmentation Surface
 
 ### Where Autonomous Agents Operate
+
 - **Clean Worktree Plan Compilation:** Agents check out repositories into isolated worktrees (`RP-18`), authenticate with read-only OpenBao AppRoles, and compile deterministic plan binaries (`terraform plan -out=tfplan.binary`).
 - **Leak-Free Shell Execution:** Agents pass credentials via `stdin` (`curl --config -`), redact sensitive output with Python rather than BSD `sed`, never run `pgrep -lf` or `ps eww` on secret-bearing hosts, never dump `.metadata.annotations` on Kubernetes `Secret` objects, and never invoke `op` inside polling loops.
 - **Pre-Execution Hash Verification:** Agents run `scripts/verify-action-elevation.sh` to verify Valkyrie's signature and prove that the local binary's 64-character SHA-256 matches the Gatekeeper's signed `plan_hash`.
 
 ### What the Human Gatekeeper Retains
+
 - **Sole Elevation Authority:** Only the human Gatekeeper can authorize a Surface 2 mutation. Accountability always chains to the human actor.
 - **Out-of-Band Biometric Signature:** The Gatekeeper inspects the concrete resource diff and signs the exact `plan_hash` using a hardware enclave over an out-of-band channel. No signature, no mutation.
 

@@ -1,0 +1,22 @@
+# Default: normalize line endings to LF on commit; check out native on Windows.
+* text=auto eol=lf
+
+# Markdown is canonical content — explicit
+*.md       text eol=lf diff=markdown
+*.markdown text eol=lf diff=markdown
+
+# Config files
+*.yml      text eol=lf
+*.yaml     text eol=lf
+*.json     text eol=lf
+*.toml     text eol=lf
+
+# Shell scripts
+*.sh       text eol=lf
+
+# Binary assets (none currently, declared for future)
+*.png      binary
+*.jpg      binary
+*.jpeg     binary
+*.gif      binary
+*.pdf      binary

@@ -49,6 +49,7 @@ Score your estate across the **4 RROM Assessment Categories** (**25 points per c
 ## Category I: Artifact Custody (25 Points)
 
 ### 1. Build Once on Ingress & Zero-Rebuild Promotion (10 Points - `RP-1`, `RP-2`, `RP-3`)
+
 - **Bench Test:** Push an annotated release tag `vX.Y.Z`. Does the workflow invoke a compiler (`cargo build`, `go build`, `docker build`), or does it promote an existing `:b<N>` manifest digest via the OCI Registry v2 API in under a second?
 - **Scoring:**
   - **0 Points:** Release tags trigger compilation or `docker build`. Staging and production run different container digests.
@@ -57,6 +58,7 @@ Score your estate across the **4 RROM Assessment Categories** (**25 points per c
 - **Monday Morning Fix:** Rip every compiler step out of `release.yml`. Add `paths-ignore` (`chart/**`, `docs/**`, `*.md`, `CHANGELOG.md`) to `build.yml`.
 
 ### 2. Kernel Scheduling Truth via `@sha256` Digest Pinning (10 Points - `RP-4`)
+
 - **Bench Test:** Inspect live pod specs on your cluster (`kubectl get pods -o yaml`). Are images scheduled by `repository:tag@sha256:<64-hex>`, or by mutable string tags (`:latest`, `:v1.4.2`)?
 - **Scoring:**
   - **0 Points:** Workloads run `:latest` or floating branch tags (like `freyr-api :latest` auto-rolling prod on 2026-09-16 without a commit in git).
@@ -65,6 +67,7 @@ Score your estate across the **4 RROM Assessment Categories** (**25 points per c
 - **Monday Morning Fix:** Deploy the Kyverno `block-mutable-tags-require-digest` policy and pin every `values.yaml` in GitOps to its current `@sha256:` digest.
 
 ### 3. Automated Source Parity & Parity Triangle Gates (5 Points - `RP-5`)
+
 - **Bench Test:** Open a release PR that modifies one line of `cmd/main.go` alongside `chart/values.yaml`. Does CI reject the PR automatically?
 - **Scoring:**
   - **0 Points:** Release branches regularly carry cherry-picked code fixes or version-bump commits in `Cargo.toml` / `package.json`.
@@ -76,6 +79,7 @@ Score your estate across the **4 RROM Assessment Categories** (**25 points per c
 ## Category II: Multi-Surface Rails (25 Points)
 
 ### 4. Server, Workstation Tap & Client Lockstep (15 Points - `RP-6`, `RP-8`)
+
 - **Bench Test:** Pick a dual-surface repository (like `Ullr` or `Yager`, which ship both a cluster service on Rail A and an operator CLI on Rail B). Compare the version running in the cluster against `brew info nate/tools/<tool>` and the artifact-grep gate.
 - **Scoring:**
   - **0 Points:** Workstation CLIs are built by hand or shipped out-of-band weeks after the server API changes; or documentation sites advertise release features with zero hits in the shipped schema (`DIS 1.8`, 2026-10-09).
@@ -83,6 +87,7 @@ Score your estate across the **4 RROM Assessment Categories** (**25 points per c
   - **15 Points:** Dual-surface releases execute Rail A (`norns-gitops`), Rail B (`nate/homebrew-tools`), and Rail C (`Idunn` Minisign OTA) in atomic lockstep from the same tagged commit, guarded by an artifact-grep check that proves every advertised construct exists in the shipped artifact.
 
 ### 5. Sandboxed Formula `inreplace` & `PATH` Hygiene (10 Points - `RP-7`)
+
 - **Bench Test:** Run `which -a <tool>` on an operator workstation and inspect `Formula/<tool>.rb` in your tap. Does `Cargo.toml` stay untouched in git while Homebrew `inreplace`s the version inside the build sandbox? And does the post-install check verify no stale binary shadows `/opt/homebrew/bin`?
 - **Scoring:**
   - **0 Points:** Engineers commit version bumps to `Cargo.toml` on release PRs (breaking source parity), or self-updaters drop shims into `~/.local/bin` that shadow Homebrew (like `doom --version` printing `0.4.0` from PATH index 5 while running pre-release code).
@@ -94,6 +99,7 @@ Score your estate across the **4 RROM Assessment Categories** (**25 points per c
 ## Category III: Deployment & Cutover Authority (25 Points)
 
 ### 6. In-Cluster GitOps Convergence & Pointer Rollback (10 Points - `RP-9`, `RP-10`, `RP-14`)
+
 - **Bench Test:** Time a production rollback from decision to healthy pods. Does it take a single `git revert` in `norns-gitops` and under 60 seconds, or does someone have to SSH into `odin` or wait 20 minutes for a rebuild?
 - **Scoring:**
   - **0 Points:** Operators deploy via SSH (`docker compose restart`, which silently ignores new volume mounts) or run `kubectl apply` from laptops.
@@ -101,6 +107,7 @@ Score your estate across the **4 RROM Assessment Categories** (**25 points per c
   - **10 Points:** In-cluster Argo CD is the sole applying authority on `Norns`. Merge to `main` triggers deployment (`RP-10`), and rollback is a deterministic git pointer revert to the previous `@sha256` digest (`RP-14`).
 
 ### 7. Cutover Governance (ADR-011) & Pre-Deploy RBAC Proof (5 Points - `RP-11`)
+
 - **Bench Test:** Inspect the last service migration or new Kubernetes resource kind added to a chart. Did it carry a ratified ADR, a data migration plan, and a pre-merge `kubectl auth can-i` proof for the deployer service account?
 - **Scoring:**
   - **0 Points:** Architecture swaps (repo replacements, datastore swaps, transport removals) ship disguised as routine merges without an ADR or decommission plan.
@@ -108,6 +115,7 @@ Score your estate across the **4 RROM Assessment Categories** (**25 points per c
   - **5 Points:** Every cutover requires a ratified ADR, dual-run migration proof, and loud decommission (`ADR-011`), and every new resource kind added to a chart is verified beforehand with `kubectl auth can-i <verb> <resource> --as=system:serviceaccount:<ns>:<deployer>`.
 
 ### 8. Zero Ambient Authority & Action-Hash Elevation (Valkyrie MFAA) (10 Points - `RP-12`, `RP-17`)
+
 - **Bench Test:** Audit your runner environment variables, shell scripts, and Surface 2 control-plane workflows. Do runners hold static admin keys, or do they use **OpenBao AppRole** for Surface 1 and **Action-Hash Elevation (Valkyrie MFAA)** for Surface 2?
 - **Scoring:**
   - **0 Points:** Long-lived admin tokens sit in CI secrets; scripts leak tokens via `curl` argv, `pgrep -lf`, BSD `sed` redaction failures, or `.metadata.annotations` dumps; agent loops call `op` on every iteration.
@@ -119,6 +127,7 @@ Score your estate across the **4 RROM Assessment Categories** (**25 points per c
 ## Category IV: Verification & Observability (25 Points)
 
 ### 9. Live Reachability, Expected-Fire Custodian & Empty-Set Guards (15 Points - `RP-13`, `RP-15`)
+
 - **Bench Test:** Ask of every check in your pipeline: *what does this report when it cannot answer, and what does it print on an empty result set?*
 - **Scoring:**
   - **0 Points:** Tasks are marked `Done` on PR merge without checking if the code has a runtime caller (the 10 dead-on-arrival features of 2026-09-09); equality checks compare unvalidated variables (`[ "$A" = "$B" ]` passing on `"" == ""`); Harbor auth checks trust `HTTP 200` from `/service/token`.
@@ -126,6 +135,7 @@ Score your estate across the **4 RROM Assessment Categories** (**25 points per c
   - **15 Points:** Every equality check guards against the empty set (`[[ "$DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]`). The Expected-Fire Release Custodian alerts whenever a merge to `main` lacks a build/deploy run within $N$ minutes. Live functional probes verify real callers and mounted directories (never single-file inode bind mounts).
 
 ### 10. SLSA-3 Provenance, Týr/Vór Ledgers & Dynamic Restore Proofs (10 Points - `RP-16`)
+
 - **Bench Test:** Inspect your last nightly backup script and your last production release receipt. Does the backup enumerate databases dynamically (`SELECT datname FROM pg_database`) and stream every archive through `pg_restore -f /dev/null`? Are CronJobs bounded by `activeDeadlineSeconds`?
 - **Scoring:**
   - **0 Points:** Backups hardcode a single database name (`-d ravenmaskos`, leaving 7 of 8 databases unbacked up for 7 months) or sit wedged for 17 days in `ImagePullBackOff` under `concurrencyPolicy: Forbid` without `activeDeadlineSeconds`.

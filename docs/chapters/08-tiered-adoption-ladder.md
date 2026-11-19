@@ -24,6 +24,7 @@ Just as the Ravenhelm Linear Operations Methodology (RLOM) scales work tracking 
 **Core Focus:** Kill tag-time compilation and establish the `:b<N>` build as the immutable physical unit of delivery.
 
 ### 1. Target Organization Profile & Team Scale
+
 - **Team Size:** 1 to 3 engineers.
 - **Architecture:** Single service or small daemon pair running in containers or standalone binaries.
 - **Infrastructure:** Single bare-metal host or VM (like early `odin` or `hrafngud`) running a single canonical Docker Compose project or systemd unit.
@@ -37,6 +38,7 @@ Tier 0 (the unmanaged baseline) dies from two self-inflicted wounds: **tag-time 
 - **25-Minute Release Anxiety:** When cutting a release requires a full compile, a flaky npm or crates.io mirror mid-tag leaves the release half-shipped.
 
 ### 3. Complete Technical Stack & Tooling Requirements
+
 - **Code Host & CI:** Forgejo Actions or GitHub Actions.
 - **Container Registry:** Harbor (`harbor.ravenhelm.dev`), GHCR (`ghcr.io`), or Forgejo's built-in OCI registry.
 - **Runtime Orchestration:** Docker Compose v2 (from a single canonical path enforced by repo deployment workflows, never edited via manual SSH).
@@ -119,11 +121,13 @@ jobs:
 Add a pre-flight check (`scripts/check-release-tag.sh`) that verifies the pushed git tag matches the version pinned in the deployment manifest before retagging.
 
 ### 5. Governance & Verification Gates
+
 - **Gate 1.1 (No Compiler in `release.yml`):** Release workflows contain zero build steps.
 - **Gate 1.2 (No `:latest` in Prod):** Production compose files and manifests are forbidden from referencing `:latest` or `:uat`.
 - **Gate 1.3 (Target Existence Proof):** Retagging fails closed if the target `:b<N>` image does not already exist in the registry.
 
 ### 6. Operational Guarantees Unlocked
+
 - **Zero-Rebuild Guarantee:** The bits running under `v1.2.0` in production are the exact bits compiled on `main`.
 - **Sub-30-Second Naming:** Promoting a release takes seconds of registry API calls instead of 20 minutes of compilation.
 - **Numbered Build Ledger:** Every merge to `main` leaves an immutable `:b<N>` receipt in the registry.
@@ -135,6 +139,7 @@ Add a pre-flight check (`scripts/check-release-tag.sh`) that verifies the pushed
 **Core Focus:** Eliminate mutable tag poisoning, enforce three-way version parity, and block source-code smuggling on release branches.
 
 ### 1. Target Organization Profile & Team Scale
+
 - **Team Size:** 4 to 15 engineers (or a supervisor managing multiple concurrent AI coding slices).
 - **Architecture:** Multi-service backend (5 to 20 services), shared PostgreSQL (`ravenmaskos`), ClickHouse (`vakr`), and NATS JetStream infrastructure.
 - **Infrastructure:** Dedicated staging (UAT) and production namespaces with Harbor (`harbor.ravenhelm.dev`) serving as the central OCI registry.
@@ -148,6 +153,7 @@ Once multiple engineers or agent slices merge concurrently, Tier 1's tag-only pr
 - **Mutable Tag Overwrites:** Without `@sha256:` digest locking in deployment manifests, force-pushing a tag in the registry silently alters what nodes pull on restart.
 
 ### 3. Complete Technical Stack & Tooling Requirements
+
 - **Code Host & CI:** Forgejo (`git.ravenhelm.dev`) or GitHub with branch protection and required CI status checks.
 - **OCI Registry:** Harbor (`harbor.ravenhelm.dev`) with Registry v2 API access and tag immutability rules.
 - **Configuration Management:** Helm 3 charts (`chart/Chart.yaml`, `chart/values.yaml`) scaffolded via **Project Factory**.
@@ -268,11 +274,13 @@ echo "PASS: Source parity verified between ${BUILD_COMMIT} and ${TAG_COMMIT}."
 ```
 
 ### 5. Governance & Verification Gates
+
 - **Gate 2.1 (The Source Parity Gate):** CI blocks any release PR that touches `.rs`, `.go`, `.ts`, `.py`, `.sql`, or dependency manifests (`Cargo.toml`, `package.json`).
 - **Gate 2.2 (The Three-Way Tag Gate):** `scripts/check-release-tag.sh` verifies `git tag == values.yaml (.image.tag) == "v" + Chart.yaml (.version)`.
 - **Gate 2.3 (Harbor Tag Immutability):** `scripts/harbor-artifact.sh retag` checks via `HEAD /v2/.../manifests/<tag>` before writing and refuses to overwrite an existing tag pointing to a different digest.
 
 ### 6. Operational Guarantees Unlocked
+
 - **Race-Free Promotion:** Even if ten commits land on `main` while `b42` is soaking in UAT, `release-pr.sh b42 v1.4.2` promotes `b42` by its exact digest, never what happens to sit at `HEAD`.
 - **Cryptographic Lineage:** Every running pod's `@sha256:` digest traces directly back to `:b<N>` and `:sha-<commit12>`.
 - **Zero Uncompiled Code:** No source change can ever slip into a release tag without first passing through an ingress build.
@@ -284,6 +292,7 @@ echo "PASS: Source parity verified between ${BUILD_COMMIT} and ${TAG_COMMIT}."
 **Core Focus:** Establish Argo CD (`norns-gitops`) as the sole applying cluster authority, synchronize Rail A (K3s cluster) and Rail B (Homebrew workstation tools), and eliminate dirty-laptop cluster applies.
 
 ### 1. Target Organization Profile & Team Scale
+
 - **Team Size:** 15 to 75 engineers (or a full multi-slice autonomous fleet supervised across platforms and products).
 - **Architecture:** Microservices running on the 3-node `Norns` HA K3s cluster (`urd`, `verdandi`, `skuld`) paired with native Rust and Go developer CLIs/TUIs (`Ullr`, `Yager`, `Doom`) on operator workstations.
 - **Infrastructure:** `Norns` K3s cluster reconciled by Argo CD from `nate/norns-gitops`, Harbor storing both OCI container images and OCI Helm charts, and the private Homebrew tap (`nate/homebrew-tools`).
@@ -297,6 +306,7 @@ At Tier 3 scale, the failures shift from single-repo build drift to **cross-surf
 - **The `Cargo.toml` vs. Parity Deadlock:** Homebrew compiles Rust tools from tagged git archives. Bumping `Cargo.toml` in git for Homebrew trips Tier 2's `check-release-source-parity.sh`; leaving `Cargo.toml` at `0.1.0` without formula intervention causes `yager --version` to print `0.1.0` forever.
 
 ### 3. Complete Technical Stack & Tooling Requirements
+
 - **GitOps Engine:** Argo CD running inside `Norns` with `selfHeal: true` and `prune: true`.
 - **Three-Repo Custody Topology:**
   1. Application Repository (`nate/vitki`, `nate/yager`): Houses code, `chart/`, and `scripts/release-pr.sh`.
@@ -394,11 +404,13 @@ end
 Under **RP-10 (Merge-Then-Deploy)**, approval to merge a PR is approval to drive the release through both rails and prove it running. A dual-surface release is not closed until Argo CD reports `Synced / Healthy` on `Norns`, the live daemon endpoint returns the new build ID, `brew upgrade` completes on the workstation, and `which -a <tool>` confirms no `~/.local/bin` shim is shadowing `/opt/homebrew/bin/<tool>`.
 
 ### 5. Governance & Verification Gates
+
 - **Gate 3.1 (GitOps Exclusivity):** Out-of-band `kubectl edit` mutations on `Norns` are automatically overwritten by Argo CD `selfHeal`.
 - **Gate 3.2 (Dual-Rail Lockstep Gate):** Dual-surface repos (`Ullr`, `Yager`) must ship Rail A and Rail B in the same release cycle.
 - **Gate 3.3 (Live Daemon Proof Gate):** Closure requires querying the live daemon socket (never a UI that falls back to mock data) and recording the output in the Linear validation comment.
 
 ### 6. Operational Guarantees Unlocked
+
 - **Zero Cluster Configuration Drift:** Every running pod and `ConfigMap` on `Norns` matches `norns-gitops` commit history.
 - **Zero Workstation-to-Cluster Skew:** Operator CLIs and cluster backends advance in lockstep.
 - **Sub-30-Second GitOps Rollback:** Reverting a single commit in `norns-gitops` restores the previous cached digest across `urd`, `verdandi`, and `skuld`.
@@ -410,6 +422,7 @@ Under **RP-10 (Merge-Then-Deploy)**, approval to merge a PR is approval to drive
 **Core Focus:** Partition blast radiuses, strip ambient root credentials from CI runners, enforce cryptographic **Action-Hash Elevation (Valkyrie MFAA)** for control-plane mutations, and ship signed Ed25519 desktop OTA bundles on Rail C.
 
 ### 1. Target Organization Profile & Team Scale
+
 - **Team Size:** 50+ engineers, regulated enterprises (SOC 2 Type II, ISO 27001, FedRAMP), or sovereign high-autonomy AI fleets where autonomous coding agents execute continuous deployments alongside human operators.
 - **Architecture:** Multi-node Kubernetes (`Norns`), identity and secrets control planes (`Zitadel`, `Keycloak`, `OpenBao`), dedicated container runner pools (`eikthyrnir` managed by `forgejo-runner-scheduler`), and native desktop GUI shells (`Idunn` on Tauri v2).
 - **Infrastructure:** Zero-ambient-authority secrets architecture (`OpenBao` AppRoles + `Valkyrie` MFAA broker) with hardware security tokens (FIDO2 / WebAuthn / YubiKey).
@@ -422,6 +435,7 @@ When autonomous AI agents and CI runners can merge PRs and trigger deployments a
 - **Desktop Client OTA Tampering (Rail C):** Shipping pre-compiled desktop `.app.tar.gz` bundles to operator machines without asymmetric Ed25519 signature verification exposes every workstation to supply-chain replacement.
 
 ### 3. Complete Technical Stack & Tooling Requirements
+
 - **Secrets & Identity Plane:** `OpenBao` on `Norns` with short-lived AppRole leases, paired with `Zitadel` / `Keycloak` OIDC.
 - **Cryptographic Elevation Broker:** **Valkyrie** Multi-Factor Action Approval (MFAA) service binding hardware FIDO2/WebAuthn challenges to exact SHA-256 action hashes.
 - **Desktop Packaging & Signing (Rail C):** Tauri v2 (`Idunn`), Minisign Ed25519 (`TAURI_SIGNING_PRIVATE_KEY` stored in 1Password `ravenmask` vault), and `latest.json` OTA manifests.
@@ -505,11 +519,13 @@ For Tauri v2 desktop apps (`Idunn`), wire Ed25519 Minisign verification into the
 4. **Client Fail-Closed Verification:** `Idunn` verifies the Ed25519 signature against its compiled-in public key before unpacking or swapping `/Applications/Idunn.app`.
 
 ### 5. Governance & Verification Gates
+
 - **Gate 4.1 (Action-Hash Binding):** A `Valkyrie` elevation token is mathematically invalid for any payload whose SHA-256 differs by a single bit from the signed plan.
 - **Gate 4.2 (Service-Owned Credentials):** Daemons and schedulers (like `forgejo-runner-scheduler`) run solely with their own scoped robot/AppRole credentials, never a human operator's personal PAT (`frs #88`).
 - **Gate 4.3 (Fail-Closed Client Signature Gate):** Unsigned or corrupted Rail C desktop bundles are unlinked before extraction.
 
 ### 6. Operational Guarantees Unlocked
+
 - **Blast-Radius Containment:** A compromised build runner or rogue agent slice cannot escalate privileges into `OpenBao`, `Keycloak`, or cluster RBAC.
 - **Non-Repudiable Human Accountability:** Every high-blast mutation carries a cryptographic receipt naming the human gatekeeper and the exact `action_sha256` approved.
 - **Three-Rail Sovereign Custody:** Server pods on `Norns` (Rail A), Homebrew CLIs on MacBooks (Rail B), and desktop GUI apps on Rail C all ship from immutable `:b<N>` builds with cryptographic verification.
@@ -538,6 +554,7 @@ For Tauri v2 desktop apps (`Idunn`), wire Ed25519 Minisign verification into the
 Do not pause feature delivery for six months to build Tier 4 from scratch. Find your current tier on the bench and execute one concrete upgrade on Monday morning:
 
 ### If You Inhabit Tier 0 (Rebuilding on Tags or Auto-Rolling `:latest`)
+
 - **Your Crime Scene:** Pushing `git tag v1.0.0` runs `docker build`, or a production container tracks `:latest` like `freyr-api` used to.
 - **Your Monday Morning Step:** **Kill the tag compiler and ban `:latest` in prod.**
   1. Move `docker build` into `.forgejo/workflows/build.yml` triggered solely on `push: branches: [main]`.
@@ -545,6 +562,7 @@ Do not pause feature delivery for six months to build Tier 4 from scratch. Find 
   3. Replace `docker build` in `release.yml` with a pure registry retag of the proven `:b<N>` image.
 
 ### If You Inhabit Tier 1 (Building Once, Deploying Mutable Tags)
+
 - **Your Crime Scene:** You build once on `main`, but `values.yaml` or `docker-compose.yml` only specifies `image: service:v1.2.0` without an `@sha256:` pin, and nothing stops an engineer from editing `.rs` or `.ts` files on a release branch.
 - **Your Monday Morning Step:** **Install Digest Locking and `check-release-source-parity.sh`.**
   1. Drop `scripts/harbor-artifact.sh`, `scripts/release-pr.sh`, `scripts/check-release-source-parity.sh`, and `scripts/check-release-tag.sh` into `scripts/` (or scaffold via **Project Factory**).
@@ -552,6 +570,7 @@ Do not pause feature delivery for six months to build Tier 4 from scratch. Find 
   3. Require `check-release-source-parity.sh` to pass on every `release/*` PR.
 
 ### If You Inhabit Tier 2 (Digests Locked, Laptops Still Running `kubectl apply`)
+
 - **Your Crime Scene:** Your digests are pinned, but engineers still run `helm upgrade` from local worktrees or leave `~/.local/bin` CLI shims out of sync with cluster pods.
 - **Your Monday Morning Step:** **Hand the Gavel to `norns-gitops` and `nate/tools`.**
   1. Register the service as an Argo CD `Application` in `norns-gitops` with `selfHeal: true`.
@@ -559,6 +578,7 @@ Do not pause feature delivery for six months to build Tier 4 from scratch. Find 
   3. For any repo with a Rust or Go CLI, add its formula to `nate/homebrew-tools` using sandboxed `inreplace` so `Cargo.toml` never has to be bumped in git.
 
 ### If You Inhabit Tier 3 (Multi-Rail GitOps Live, Ambient Credentials in CI)
+
 - **Your Crime Scene:** Application releases flow cleanly through Argo CD, but CI runners or automation scripts hold long-lived admin tokens or personal PATs.
 - **Your Monday Morning Step:** **Partition Blast Radiuses and Gate Surface 2 on Valkyrie MFAA.**
   1. Replace every personal PAT in automation with a dedicated service credential or `OpenBao` AppRole.

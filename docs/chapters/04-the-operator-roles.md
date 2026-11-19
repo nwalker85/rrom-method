@@ -117,7 +117,7 @@ The Delivery Closer holds the merge seat. This is the human-accountable supervis
 
 In multi-agent operations governed by Dispatch and `Doomcourt`, merge execution is the one responsibility that **never delegates downward**:
 
-> ### The Rule of Unbroken Custody
+> **The Rule of Unbroken Custody**
 >
 > *The exact supervisor session that receives explicit human approval for a specific PR ("merge it" / "approved, ship" / "LGTM merge") must execute that merge itself and ride the deployment through live runtime verification. Merge execution is never delegated to a subagent, worker slice, or background queue.*
 
@@ -225,26 +225,31 @@ Watch how a release moves across the bench in five minutes:
 Whenever a team blurs the boundaries between Author, Custodian, Closer, and Gatekeeper, one of five failures lands on the bench:
 
 ### 1. The Unattributed Automation Ghost (`dr-8`, 2026-09-14)
+
 - **The Symptom:** Designing a background issuer, release bot, or cron runner that signs artifacts or mutates production with "no human signer" in the provenance chain.
 - **The Consequence:** When an automated action misfires or is abused, audit logs terminate at a generic bot string with zero record of who authorized the mandate.
 - **The Fix:** Every service credential and standing mandate chains back to a named human signer's attestation.
 
 ### 2. The Personal-PAT Control Plane (`frs #88`, 2026-10-08)
+
 - **The Symptom:** Wiring an operator's personal access token or personal kubeconfig into a long-running controller (`forgejo-runner-scheduler`), CI secret, or KEDA scaler because "my token already has permissions."
 - **The Consequence:** Personal token rotation or scope edits silently break production autoscaling, and every action taken by the daemon shows up in the audit log as the human typing at a keyboard.
 - **The Fix:** Control loops run exclusively with their own dedicated `OpenBao` AppRole or service account credential, monitored for expiration and scoped to the service's exact API surface (**RP-12**).
 
 ### 3. The Merge-and-Vanish Closer (2026-09-13 & 2026-09-16)
+
 - **The Symptom:** Merging a PR, seeing a green merge button, marking the Linear ticket `Done`, and closing the session without checking if `deploy.yml` fired or if the pod rolled.
 - **The Consequence:** On 2026-09-13, `the-work` masthead stayed on old code after three merged PRs were declared finished; on 2026-09-16, 1 of 24 merges to `main` never triggered `deploy.yml` at all.
 - **The Fix:** **Merge-Then-Deploy (RP-10)** + **Live Reachability Proof (RP-13)**. The Closer stays in the seat until the workflow run ID is confirmed and the live socket returns the new build number.
 
 ### 4. The Delegated Merge Handoff
+
 - **The Symptom:** The supervisor session receives human approval (*"LGTM merge"*) and spawns a background worker agent to merge the PR and deploy it.
 - **The Consequence:** Custody breaks. The worker did not witness the approval, cannot adjudicate unexpected merge conflicts or RBAC errors (`RAV-2086`), and leaves the supervisor blind to half-shipped state.
 - **The Fix:** **The Rule of Unbroken Custody.** Merge execution is never delegated to a worker slice.
 
 ### 5. The Sneak-Fix Custodian
+
 - **The Symptom:** While cutting `release/v1.4.0`, the Custodian spots a minor bug in `src/` or bumps `Cargo.toml` directly on the release branch.
 - **The Consequence:** Because `release.yml` never compiles code (**RP-2**), the source edit either ships as a ghost diff (present in git, absent from the `:b42` container) or forces an illegal rebuild.
 - **The Fix:** `check-release-source-parity.sh` (**RP-5**) fails the release PR automatically on any non-metadata diff.

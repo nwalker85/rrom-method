@@ -62,6 +62,7 @@ Vitki closed this gap under **ADR 0002: Containerized k0s for Local Inner Loop**
 Rail A splits pre-release soak testing from production traffic using two distinct declarative streams:
 
 #### The UAT Stream (Continuous Validation)
+
 - **Target Environment:** Staging / UAT namespace on `Norns`.
 - **Manifest Configuration:** Governed by `chart/values-uat.yaml`.
 - **Image Pinning:** Tracks the moving `:uat` tag or latest `:b<N>` build produced by `main`.
@@ -70,6 +71,7 @@ Rail A splits pre-release soak testing from production traffic using two distinc
 - **Purpose:** Proves the exact compiled binary under synthetic traffic and integration tests before a release name is ever minted.
 
 #### The Production Stream (Strict SemVer & Digest Governance)
+
 - **Target Environment:** Production namespace on `Norns`.
 - **Manifest Configuration:** Governed by `chart/values.yaml` and pinned in `norns-gitops`.
 - **Image Pinning:** Pinned simultaneously to the human-readable SemVer tag (`vX.Y.Z`) and the immutable `@sha256:` cryptographic digest of the proven `:b<N>` build:
@@ -85,6 +87,7 @@ Rail A splits pre-release soak testing from production traffic using two distinc
     type: NodePort
     nodePort: 30108
   ```
+
 - **Network Exposure:** Bound to production Traefik ingress routes and production NodePort `30108`.
 - **Argo CD Synchronization:** Reconciled only when an approved release PR merges into `norns-gitops`.
 - **Template Rendering:** The Kubernetes `Deployment` template binds both the tag and the digest into the container spec:

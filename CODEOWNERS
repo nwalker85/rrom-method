@@ -1,0 +1,13 @@
+# CODEOWNERS — Ravenhelm Release Operations Methodology (RROM)
+# Syntax: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+
+# Default owner for everything
+*                                       @nwalker85
+
+# Doctrine is load-bearing — explicit owner
+/docs/chapters/03-numbered-principles.md  @nwalker85
+/docs/chapters/                         @nwalker85
+
+# Licensing surface
+/LICENSE                                @nwalker85
+/CONTRIBUTING.md                        @nwalker85
