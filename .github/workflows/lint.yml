@@ -1,0 +1,78 @@
+name: lint
+
+on:
+  pull_request:
+    paths:
+      - '**/*.md'
+      - '.markdownlint.yml'
+      - '.github/workflows/lint.yml'
+  push:
+    branches: [main]
+    paths:
+      - '**/*.md'
+
+jobs:
+  markdownlint:
+    name: markdownlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+
+      - name: Install markdownlint-cli
+        run: npm install -g markdownlint-cli@0.41.0
+
+      - name: Run markdownlint
+        run: markdownlint 'docs/**/*.md' 'README.md' 'CONTRIBUTING.md' 'CHANGELOG.md' 'AGENTS.md' 'SUPPORT.md' --config .markdownlint.yml
+
+  compile-check:
+    name: verify single-file compilation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Run compile.sh
+        run: |
+          mkdir -p build
+          ./scripts/compile.sh > build/rrom.md
+          test -s build/rrom.md
+
+  rubric-check:
+    name: chapter rubric self-checks present
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Verify every chapter has a RUBRIC_CHECK block
+        run: |
+          set -e
+          missing=0
+          for f in docs/chapters/*.md; do
+            if ! grep -q 'RUBRIC_CHECK' "$f"; then
+              echo "::error file=$f::missing RUBRIC_CHECK self-check block"
+              missing=$((missing + 1))
+            fi
+          done
+          if [ "$missing" -gt 0 ]; then
+            echo "$missing chapter(s) missing RUBRIC_CHECK"
+            exit 1
+          fi
+
+      - name: Verify every chapter has the license header
+        run: |
+          set -e
+          missing=0
+          for f in docs/chapters/*.md; do
+            if ! head -3 "$f" | grep -q 'LICENSE: © 2026 Ravenhelm LLC'; then
+              echo "::error file=$f::missing standard license header"
+              missing=$((missing + 1))
+            fi
+          done
+          if [ "$missing" -gt 0 ]; then
+            echo "$missing chapter(s) missing license header"
+            exit 1
+          fi

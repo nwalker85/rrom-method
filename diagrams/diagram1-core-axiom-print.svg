@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 380" width="100%" height="100%">
+  <defs>
+    <style>
+      .title { font-family: 'Source Serif 4', Georgia, serif; font-size: 20px; font-weight: 600; fill: #0B0C0E; }
+      .subtitle { font-family: 'IBM Plex Mono', monospace; font-size: 11px; fill: #6F6A62; letter-spacing: 0.12em; }
+      .phase-title { font-family: 'Source Serif 4', Georgia, serif; font-size: 16px; font-weight: 600; fill: #0B0C0E; }
+      .body-text { font-family: 'Source Serif 4', Georgia, serif; font-size: 12px; fill: #6F6A62; }
+      .code-text { font-family: 'IBM Plex Mono', monospace; font-size: 11px; fill: #1F6E94; }
+      .accent-badge { font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; fill: #A3222F; font-weight: 600; letter-spacing: 0.08em; }
+      .gold-badge { font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; fill: #96752C; font-weight: 600; letter-spacing: 0.08em; }
+      .green-badge { font-family: 'IBM Plex Mono', monospace; font-size: 9.5px; fill: #2E6B31; font-weight: 600; letter-spacing: 0.08em; }
+    </style>
+    <marker id="arrow-print" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 z" fill="#6F6A62"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="100%" height="100%" fill="#EDE8DC" rx="8"/>
+
+  <!-- Header -->
+  <text x="40" y="45" class="title">The Core Axiom: Three Lifecycle Boundaries</text>
+  <text x="40" y="68" class="subtitle">BUILDS ARE THE UNIT · RELEASES ARE NAMES · DEPLOYS ARE RECONCILIATIONS</text>
+
+  <!-- Phase 1: BUILD -->
+  <g transform="translate(40, 100)">
+    <rect width="250" height="230" rx="6" fill="#E2DDD1" stroke="#B0A898" stroke-width="1.2"/>
+    <rect x="0" y="0" width="250" height="32" rx="6" fill="#B0A898" opacity="0.3"/>
+    <text x="16" y="22" class="accent-badge">PHASE 1 · ONCE ONLY</text>
+    <text x="16" y="58" class="phase-title">1. The Build (Unit)</text>
+    <text x="16" y="80" class="subtitle">TRIGGER: MERGE TO MAIN</text>
+    <text x="16" y="112" class="body-text">Compiles code, runs tests, and</text>
+    <text x="16" y="130" class="body-text">builds the single immutable artifact.</text>
+    <line x1="16" y1="150" x2="234" y2="150" stroke="#B0A898" stroke-width="1"/>
+    <text x="16" y="174" class="code-text">tag: :b&lt;N&gt; (monotonic)</text>
+    <text x="16" y="196" class="code-text">tag: :sha-&lt;commit12&gt;</text>
+    <text x="16" y="218" class="code-text">digest: sha256:7f9a...3c</text>
+  </g>
+
+  <!-- Transition 1 -> 2 Arrow -->
+  <line x1="300" y1="215" x2="335" y2="215" stroke="#6F6A62" stroke-width="1.8" marker-end="url(#arrow-print)"/>
+
+  <!-- Phase 2: RELEASE -->
+  <g transform="translate(345, 100)">
+    <rect width="250" height="230" rx="6" fill="#E2DDD1" stroke="#B0A898" stroke-width="1.2"/>
+    <rect x="0" y="0" width="250" height="32" rx="6" fill="#B0A898" opacity="0.3"/>
+    <text x="16" y="22" class="gold-badge">PHASE 2 · ZERO REBUILDS</text>
+    <text x="16" y="58" class="phase-title">2. The Release (Name)</text>
+    <text x="16" y="80" class="subtitle">TRIGGER: RELEASE PR + TAG</text>
+    <text x="16" y="112" class="body-text">Assigns SemVer metadata to an</text>
+    <text x="16" y="130" class="body-text">existing build. Zero source drift.</text>
+    <line x1="16" y1="150" x2="234" y2="150" stroke="#B0A898" stroke-width="1"/>
+    <text x="16" y="174" class="code-text">git tag: v1.0.3</text>
+    <text x="16" y="196" class="code-text">values: pin sha256:7f9a...</text>
+    <text x="16" y="218" class="code-text">harbor: retag b&lt;N&gt; -&gt; v1.0.3</text>
+  </g>
+
+  <!-- Transition 2 -> 3 Arrow -->
+  <line x1="605" y1="215" x2="640" y2="215" stroke="#6F6A62" stroke-width="1.8" marker-end="url(#arrow-print)"/>
+
+  <!-- Phase 3: DEPLOY -->
+  <g transform="translate(650, 100)">
+    <rect width="210" height="230" rx="6" fill="#E2DDD1" stroke="#B0A898" stroke-width="1.2"/>
+    <rect x="0" y="0" width="210" height="32" rx="6" fill="#B0A898" opacity="0.3"/>
+    <text x="16" y="22" class="green-badge">PHASE 3 · CONVERGENCE</text>
+    <text x="16" y="58" class="phase-title">3. The Deploy</text>
+    <text x="16" y="80" class="subtitle">TRIGGER: DECLARATIVE SYNC</text>
+    <text x="16" y="112" class="body-text">Argo CD / Brew / OTA</text>
+    <text x="16" y="130" class="body-text">pulls the pinned digest.</text>
+    <line x1="16" y1="150" x2="194" y2="150" stroke="#B0A898" stroke-width="1"/>
+    <text x="16" y="174" class="code-text">run: image@sha256:...</text>
+    <text x="16" y="196" class="body-text">Probe: /api/health</text>
+    <text x="16" y="218" class="green-badge">STATUS: VERIFIED LIVE</text>
+  </g>
+</svg>

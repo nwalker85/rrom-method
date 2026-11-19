@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 380" width="100%" height="100%">
+  <defs>
+    <style>
+      .title { font-family: 'Source Serif 4', Georgia, serif; font-size: 20px; font-weight: 600; fill: #EDE8DC; }
+      .subtitle { font-family: 'IBM Plex Mono', monospace; font-size: 11px; fill: #8E939B; letter-spacing: 0.12em; }
+      .node-title { font-family: 'Source Serif 4', Georgia, serif; font-size: 16px; font-weight: 600; fill: #EDE8DC; }
+      .body-text { font-family: 'Source Serif 4', Georgia, serif; font-size: 12px; fill: #8E939B; }
+      .code-text { font-family: 'IBM Plex Mono', monospace; font-size: 11px; fill: #4DA8DA; }
+      .badge { font-family: 'IBM Plex Mono', monospace; font-size: 9px; font-weight: 600; letter-spacing: 0.08em; }
+      .gate-title { font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 600; fill: #A3222F; letter-spacing: 0.1em; }
+    </style>
+  </defs>
+
+  <rect width="100%" height="100%" fill="#0B0C0E" rx="8"/>
+
+  <!-- Header -->
+  <text x="40" y="45" class="title">The Release Parity Triangle</text>
+  <text x="40" y="68" class="subtitle">PROVING ZERO DRIFT BEFORE PROMOTION CAN PROCEED</text>
+
+  <!-- Triangle Layout -->
+  <!-- Top Node: Git Tag -->
+  <g transform="translate(330, 95)">
+    <rect width="240" height="90" rx="6" fill="#14171C" stroke="#C4A45A" stroke-width="1.5"/>
+    <text x="16" y="24" class="badge" fill="#C4A45A">VERTEX 1 · HUMAN SEMVER</text>
+    <text x="16" y="48" class="node-title">Annotated Git Tag</text>
+    <text x="16" y="70" class="code-text">refs/tags/v1.0.3</text>
+  </g>
+
+  <!-- Bottom Left: Helm Manifests -->
+  <g transform="translate(80, 240)">
+    <rect width="260" height="110" rx="6" fill="#14171C" stroke="#4DA8DA" stroke-width="1.5"/>
+    <text x="16" y="24" class="badge" fill="#4DA8DA">VERTEX 2 · REPO MANIFESTS</text>
+    <text x="16" y="48" class="node-title">Chart &amp; Values Metadata</text>
+    <text x="16" y="70" class="code-text">Chart.yaml: appVersion: 1.0.3</text>
+    <text x="16" y="90" class="code-text">values.yaml: image.digest: sha256:...</text>
+  </g>
+
+  <!-- Bottom Right: Registry Digest -->
+  <g transform="translate(560, 240)">
+    <rect width="260" height="110" rx="6" fill="#14171C" stroke="#4E9A51" stroke-width="1.5"/>
+    <text x="16" y="24" class="badge" fill="#4E9A51">VERTEX 3 · OCI REGISTRY</text>
+    <text x="16" y="48" class="node-title">Immutable Registry Digest</text>
+    <text x="16" y="70" class="code-text">harbor: :b42 == :sha-9e8a...</text>
+    <text x="16" y="90" class="code-text">retagged to: :v1.0.3 @ digest</text>
+  </g>
+
+  <!-- Connecting Lines -->
+  <line x1="370" y1="185" x2="250" y2="240" stroke="#8E939B" stroke-width="1.5" stroke-dasharray="4"/>
+  <line x1="530" y1="185" x2="650" y2="240" stroke="#8E939B" stroke-width="1.5" stroke-dasharray="4"/>
+  <line x1="340" y1="295" x2="560" y2="295" stroke="#8E939B" stroke-width="1.5" stroke-dasharray="4"/>
+
+  <!-- Center Parity Gate -->
+  <g transform="translate(365, 220)">
+    <rect width="170" height="80" rx="6" fill="#14171C" stroke="#A3222F" stroke-width="1.8"/>
+    <text x="18" y="28" class="gate-title">PARITY GATE</text>
+    <text x="18" y="48" class="body-text">check-release-tag.sh</text>
+    <text x="18" y="66" class="code-text" style="font-size: 10px;">drift == 0 ? PASS : FAIL</text>
+  </g>
+</svg>

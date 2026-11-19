@@ -1,0 +1,84 @@
+# markdownlint config tuned for RLOM chapter conventions
+# https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md
+#
+# Philosophy: lint catches structural mistakes (broken links, unclosed
+# code fences, missing newline at EOF) and lets editorial style breathe.
+# Rules disabled here are intentional content-style choices recorded in
+# docs/_shared/CONTEXT.md and docs/architecture/repo-structure.md, not
+# oversights.
+
+default: true
+
+# === Disabled — content-style choices ===
+
+# Line length — RLOM chapters are prose, not code; let editor wrap.
+MD013: false
+
+# Allow inline HTML — license header, RUBRIC_CHECK self-check, and
+# PRINCIPLE_GAP flags use HTML comments per CONTEXT.md §8 and §14.
+MD033: false
+
+# Bare URLs OK in license / contact placeholders.
+MD034: false
+
+# Multiple headings with same content — allow across different parent sections (e.g. CHANGELOG).
+MD024:
+  siblings_only: true
+
+# H1 in document — chapters use H2 as their root (per CONTEXT.md §4).
+# Files without a top-level H1 are allowed; H2 is the canonical heading.
+MD041: false
+
+# Multiple top-level H1 — vendored documents (e.g., the repo-structure
+# template at docs/architecture/repo-structure.md) carry their own H1
+# below a wrapper H1. Allow.
+MD025: false
+
+# Trailing punctuation in headings — chapter 3 principle headings are
+# directive sentences ending in periods ("### P-1. Linear is the active
+# work graph, not an archive.") per the doctrine voice. Allow.
+MD026: false
+
+# Blank lines inside blockquotes — the Augmentation Surface and Where
+# this gets hard callouts use multi-paragraph blockquotes per the
+# standard format in CONTEXT.md §7. Allow blanks between paragraphs.
+MD028: false
+
+# Lists need surrounding blank lines — over-strict for prose with
+# embedded enumerations. Authors handle this with judgment.
+MD032: false
+
+# Emphasis used as heading — CONTEXT.md §12 (the rubric) uses bold
+# labels (Structural, Content, Funnel) as sub-sub-headings under H4.
+# Intentional.
+MD036: false
+
+# Fenced code blocks should have a language specified — many code
+# fences in this repo hold tree diagrams or generic shell commands
+# where a language tag would be noise. Authors should still specify
+# a language where it adds value.
+MD040: false
+
+# === Active — structural rules ===
+
+# Multiple consecutive blank lines — allow 1, not more.
+MD012:
+  maximum: 1
+
+# Heading style — ATX (#) only.
+MD003:
+  style: atx
+
+# Unordered list style — dashes only.
+MD004:
+  style: dash
+
+# Ordered list start — must start with 1.
+MD029:
+  style: ordered
+
+# Heading must have surrounding blank lines — basic readability.
+MD022: true
+
+# Files must end with a single newline.
+MD047: true
